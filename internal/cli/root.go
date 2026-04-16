@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/heartleo/hn"
+	hn "github.com/heartleo/hn-cli"
 	"github.com/spf13/cobra"
 )
 

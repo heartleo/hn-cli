@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/list"
-	"github.com/heartleo/hn"
+	hn "github.com/heartleo/hn-cli"
 )
 
 func TestStoryDelegateRendersOriginalAndTranslation(t *testing.T) {

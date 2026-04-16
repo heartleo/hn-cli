@@ -12,8 +12,8 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/heartleo/hn"
-	"github.com/heartleo/hn/internal/translate"
+	hn "github.com/heartleo/hn-cli"
+	"github.com/heartleo/hn-cli/internal/translate"
 )
 
 func runBatchCommandAt(t *testing.T, cmd tea.Cmd, index int) tea.Msg {

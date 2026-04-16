@@ -1,7 +1,7 @@
 .PHONY: build fmt tidy vet
 
 build:
-	go build github.com/heartleo/hn/cmd/hn
+	go build github.com/heartleo/hn-cli/cmd/hn
 
 fmt:
 	go fmt ./...

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/heartleo/hn/internal/config"
+	"github.com/heartleo/hn-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 

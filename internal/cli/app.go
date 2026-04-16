@@ -17,9 +17,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/heartleo/hn"
-	"github.com/heartleo/hn/internal/config"
-	"github.com/heartleo/hn/internal/translate"
+	hn "github.com/heartleo/hn-cli"
+	"github.com/heartleo/hn-cli/internal/config"
+	"github.com/heartleo/hn-cli/internal/translate"
 )
 
 type appState int

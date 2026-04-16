@@ -1,6 +1,6 @@
 package main
 
-import "github.com/heartleo/hn/internal/cli"
+import "github.com/heartleo/hn-cli/internal/cli"
 
 func main() {
 	cli.Execute()

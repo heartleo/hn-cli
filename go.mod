@@ -1,4 +1,4 @@
-module github.com/heartleo/hn
+module github.com/heartleo/hn-cli
 
 go 1.25.9
 

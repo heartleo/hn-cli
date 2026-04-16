@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/heartleo/hn"
+	hn "github.com/heartleo/hn-cli"
 )
 
 func TestHtmlToMarkdown(t *testing.T) {

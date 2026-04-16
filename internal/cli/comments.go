@@ -7,7 +7,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	md "github.com/JohannesKaufmann/html-to-markdown/v2"
-	"github.com/heartleo/hn"
+	hn "github.com/heartleo/hn-cli"
 )
 
 const (
