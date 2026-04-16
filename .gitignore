@@ -33,8 +33,9 @@ bin/
 *.env
 *.yaml
 !.goreleaser.yaml
+!.goreleaser.yml
 CLAUDE.md
-hn
+/hn
 
 # Develop Tools
 .vscode/
