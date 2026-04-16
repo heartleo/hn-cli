@@ -1,0 +1,61 @@
+version: 2
+
+project_name: hn
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: hn
+    main: ./cmd/hn
+    binary: hn
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/heartleo/hn.Version={{.Version}} -X github.com/heartleo/hn.Commit={{.Commit}} -X github.com/heartleo/hn.Date={{.Date}}
+
+archives:
+  - id: hn
+    ids:
+      - hn
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - '^refactor:'
+      - '^style:'
+      - '^Merge '
+
+release:
+  draft: true
+  replace_existing_draft: true
