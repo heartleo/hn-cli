@@ -1,7 +1,18 @@
 package hn
 
+import "runtime/debug"
+
 var (
-	Version = "0.0.1"
+	Version = "dev"
 	Commit  = "none"
 	Date    = "unknown"
 )
+
+func init() {
+	if Version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
+		Version = info.Main.Version
+	}
+}
