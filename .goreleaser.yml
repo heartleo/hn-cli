@@ -46,13 +46,19 @@ checksum:
 
 changelog:
   sort: asc
+  groups:
+    - title: Bug Fixes
+      regexp: '^fix:'
+    - title: Features
+      regexp: '^feat:'
+    - title: Documentation
+      regexp: '^docs:'
+    - title: Other
+      order: 999
   filters:
     exclude:
-      - '^docs:'
       - '^test:'
-      - '^chore:'
       - '^ci:'
-      - '^refactor:'
       - '^style:'
       - '^Merge '
 
