@@ -178,3 +178,7 @@ Example `~/.config/hn/config.json`:
   }
 }
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=heartleo/hn-cli&type=Date)](https://star-history.com/#heartleo/hn-cli&Date)
