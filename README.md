@@ -3,8 +3,9 @@
 A terminal client for Hacker News.
 
 ![Go version](https://img.shields.io/badge/go-1.25%2B-blue)
-[![Go Report Card](https://goreportcard.com/badge/github.com/heartleo/hn-cli)](https://goreportcard.com/report/github.com/heartleo/hn-cli)
+[![CI](https://img.shields.io/github/actions/workflow/status/heartleo/hn-cli/release.yml)](https://github.com/heartleo/hn-cli/actions)
 [![Release](https://img.shields.io/github/v/release/heartleo/hn-cli)](https://github.com/heartleo/hn-cli/releases)
+[![Downloads](https://img.shields.io/github/downloads/heartleo/hn-cli/total)](https://github.com/heartleo/hn-cli/releases)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 <!-- English | [中文](README.zh.md) -->
