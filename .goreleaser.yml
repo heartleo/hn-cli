@@ -78,6 +78,30 @@ brews:
     test: |
       system "#{bin}/hn", "--version"
 
+winget:
+  - name: hn
+    package_identifier: heartleo.hn
+    publisher: heartleo
+    publisher_url: "https://github.com/heartleo"
+    homepage: "https://github.com/heartleo/hn-cli"
+    short_description: "A terminal-based Hacker News client"
+    license: MIT
+    tags:
+      - hacker-news
+      - terminal
+      - tui
+      - cli
+    repository:
+      owner: heartleo
+      name: winget-pkgs
+      token: "{{ .Env.WINGET_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
 release:
   draft: true
   replace_existing_draft: true

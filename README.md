@@ -29,6 +29,18 @@ A terminal client for Hacker News.
 $ brew install heartleo/tap/hn
 ```
 
+**winget** (Windows):
+
+```powershell
+winget install heartleo.hn
+```
+
+**curl** (macOS / Linux):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh | sh
+```
+
 **Prebuilt binaries** — download from [GitHub Releases](https://github.com/heartleo/hn-cli/releases):
 
 | Platform        | Archive                             |
