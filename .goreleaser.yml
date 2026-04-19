@@ -62,6 +62,22 @@ changelog:
       - '^style:'
       - '^Merge '
 
+brews:
+  - name: hn
+    ids:
+      - hn
+    repository:
+      owner: heartleo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/heartleo/hn-cli"
+    description: "A terminal-based Hacker News client"
+    license: "MIT"
+    install: |
+      bin.install "hn"
+    test: |
+      system "#{bin}/hn", "--version"
+
 release:
   draft: true
   replace_existing_draft: true

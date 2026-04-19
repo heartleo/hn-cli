@@ -23,6 +23,12 @@ A terminal client for Hacker News.
 
 ## Install
 
+**Homebrew** (macOS / Linux):
+
+```bash
+$ brew install heartleo/tap/hn
+```
+
 **Prebuilt binaries** — download from [GitHub Releases](https://github.com/heartleo/hn-cli/releases):
 
 | Platform        | Archive                             |
