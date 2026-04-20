@@ -170,6 +170,65 @@ func TestReorderByKids(t *testing.T) {
 	}
 }
 
+func TestReorderTreeByKids(t *testing.T) {
+	comments := []*hn.Comment{
+		{
+			Item: hn.Item{ID: 10, Kids: []int{11, 12, 13}},
+			Children: []*hn.Comment{
+				{Item: hn.Item{ID: 11}},
+				{
+					Item: hn.Item{ID: 12, Kids: []int{14, 15}},
+					Children: []*hn.Comment{
+						{Item: hn.Item{ID: 14}},
+						{Item: hn.Item{ID: 15}},
+					},
+				},
+				{Item: hn.Item{ID: 13}},
+			},
+		},
+	}
+
+	ReorderTreeByKids(comments, map[int][]int{
+		10: {13, 11, 12},
+		12: {15, 14},
+	})
+
+	if got, want := ids(comments[0].Children), []int{13, 11, 12}; !sameIDs(got, want) {
+		t.Fatalf("top child order = %v, want %v", got, want)
+	}
+	if got, want := ids(comments[0].Children[2].Children), []int{15, 14}; !sameIDs(got, want) {
+		t.Fatalf("nested child order = %v, want %v", got, want)
+	}
+	if got, want := comments[0].Item.Kids, []int{13, 11, 12}; !sameIDs(got, want) {
+		t.Fatalf("top kids = %v, want %v", got, want)
+	}
+	if got, want := comments[0].Children[2].Item.Kids, []int{15, 14}; !sameIDs(got, want) {
+		t.Fatalf("nested kids = %v, want %v", got, want)
+	}
+}
+
+func ids(comments []*hn.Comment) []int {
+	out := make([]int, 0, len(comments))
+	for _, c := range comments {
+		if c != nil {
+			out = append(out, c.Item.ID)
+		}
+	}
+	return out
+}
+
+func sameIDs(got, want []int) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestThread_ContextCancel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()

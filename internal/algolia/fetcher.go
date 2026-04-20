@@ -116,6 +116,37 @@ func ReorderByKids(comments []*hn.Comment, kids []int) []*hn.Comment {
 	return out
 }
 
+// ReorderTreeByKids applies Firebase Kids ordering to every loaded comment
+// subtree whose parent id exists in kidsByParent.
+func ReorderTreeByKids(comments []*hn.Comment, kidsByParent map[int][]int) {
+	if len(comments) == 0 || len(kidsByParent) == 0 {
+		return
+	}
+	for _, c := range comments {
+		if c == nil {
+			continue
+		}
+		if kids, ok := kidsByParent[c.Item.ID]; ok {
+			c.Children = ReorderByKids(c.Children, kids)
+			c.Item.Kids = commentIDs(c.Children)
+		}
+		ReorderTreeByKids(c.Children, kidsByParent)
+	}
+}
+
+func commentIDs(comments []*hn.Comment) []int {
+	if len(comments) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(comments))
+	for _, c := range comments {
+		if c != nil {
+			ids = append(ids, c.Item.ID)
+		}
+	}
+	return ids
+}
+
 // convert maps an Algolia item to *hn.Comment recursively. Dead nodes
 // (nil author and nil text) drop themselves and their subtree — the HN web
 // UI does the same.

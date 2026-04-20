@@ -46,9 +46,8 @@ var categoryLabels = map[hn.Category]string{
 }
 
 const initialStoryLoad = 20
-const initialTopCommentLoad = 20
-const topCommentLoadBatch = 20
 const listBottomGap = 3
+const listProgressBarHeight = 1
 const toastDuration = 3 * time.Second
 
 const translationNotConfiguredMessage = "Translation disabled. Set HN_TRANSLATE_API_KEY to enable it."
@@ -90,40 +89,11 @@ type refreshStoriesMsg struct {
 type topCommentsMsg struct {
 	story    hn.Item
 	comments []*hn.Comment
-	loaded   int
-	// allLoaded is true when comments already contains the entire resolved
-	// comment tree (e.g. fetched via Algolia in one call). The handler then
-	// skips loadFirstCommentTree and marks every node's subtree as loaded
-	// so toggleSelectedReplies becomes a pure UI operation.
-	allLoaded bool
-}
-
-type moreTopCommentsMsg struct {
-	storyID  int
-	start    int
-	end      int
-	comments []*hn.Comment
-}
-
-type moreTopCommentsErrMsg struct {
-	err error
-}
-
-// subtreeDoneMsg signals that the client's two-phase subtree fetch for a
-// parent comment has reached a terminal state (Phase 2 success, or Phase 2
-// retry budget exhausted with Phase 1 children still attached).
-type subtreeDoneMsg struct {
-	storyID  int
-	parentID int
-	children []*hn.Comment
-	phase    int // 1 when Phase 2 failed terminally, 2 on success
 }
 
 type refreshCommentsMsg struct {
-	story     hn.Item
-	comments  []*hn.Comment
-	loaded    int
-	allLoaded bool
+	story    hn.Item
+	comments []*hn.Comment
 }
 
 type refreshCommentsErrMsg struct {
@@ -183,7 +153,6 @@ type model struct {
 
 	client             *hn.Client
 	algolia            *algolia.Fetcher
-	commentSource      string
 	translator         *translate.Client
 	storyIDs           map[hn.Category][]int
 	stories            map[hn.Category][]hn.Story
@@ -194,15 +163,9 @@ type model struct {
 	translating        map[int]bool
 	showTranslation    map[int]bool
 	detail             *hn.Item
-	detailCtx          context.Context
-	detailCancel       context.CancelFunc
 	comments           []*hn.Comment
 	collapsed          map[int]bool
-	childrenLoaded     map[int]bool
-	childrenLoading    map[int]bool
 	childrenExpanded   map[int]bool
-	topCommentsLoading bool
-	topCommentsLoaded  int
 	commentsRefreshing bool
 
 	// Comment cursor navigation
@@ -272,7 +235,6 @@ func newModel(cat hn.Category) model {
 		detailKeys:             newDetailKeyMap(),
 		client:                 hn.NewClient(),
 		algolia:                algolia.NewFetcher(),
-		commentSource:          config.LoadCommentSource(),
 		translator:             translator,
 		storyIDs:               make(map[hn.Category][]int),
 		stories:                make(map[hn.Category][]hn.Story),
@@ -281,8 +243,6 @@ func newModel(cat hn.Category) model {
 		translating:            translating,
 		showTranslation:        showTranslation,
 		collapsed:              make(map[int]bool),
-		childrenLoaded:         make(map[int]bool),
-		childrenLoading:        make(map[int]bool),
 		childrenExpanded:       make(map[int]bool),
 		commentTranslations:    make(map[int]string),
 		commentTranslating:     make(map[int]bool),
@@ -408,100 +368,29 @@ func (m model) refreshVisibleStories(cat hn.Category) tea.Cmd {
 	}
 }
 
-func (m model) fetchTopComments(story hn.Item) tea.Cmd {
-	return m.fetchTopCommentsLimit(story, initialTopCommentLoad)
-}
-
-func (m model) fetchTopCommentsLimit(story hn.Item, limit int) tea.Cmd {
-	if m.commentSource == config.CommentSourceAlgolia {
-		return m.fetchAlgoliaThread(story, limit)
-	}
-	return m.fetchFirebaseTopComments(story, limit)
-}
-
-func (m model) fetchFirebaseTopComments(story hn.Item, limit int) tea.Cmd {
-	return func() tea.Msg {
-		end := limit
-		if end <= 0 || end > len(story.Kids) {
-			end = len(story.Kids)
-		}
-		comments, err := m.client.GetTopComments(story.Kids[:end])
-		if err != nil {
-			return errMsg{err}
-		}
-		return topCommentsMsg{story: story, comments: comments, loaded: end}
-	}
-}
-
-// fetchAlgoliaThread pulls the entire comment tree in one request. On failure
-// (HTTP error, Algolia indexing lag, ctx cancel, etc.) it falls back to the
-// Firebase per-item path so the user always gets *something*.
-func (m model) fetchAlgoliaThread(story hn.Item, limit int) tea.Cmd {
+func (m model) fetchAlgoliaThread(story hn.Item) tea.Cmd {
 	return func() tea.Msg {
 		comments, err := m.algolia.Thread(context.Background(), story.ID)
 		if err != nil {
-			slog.Debug("algolia thread failed, falling back to firebase", "story", story.ID, "err", err)
-			return m.fetchFirebaseTopComments(story, limit)()
+			return errMsg{err}
 		}
 		comments = algolia.ReorderByKids(comments, story.Kids)
-		return topCommentsMsg{
-			story:     story,
-			comments:  comments,
-			loaded:    len(story.Kids),
-			allLoaded: true,
-		}
-	}
-}
-
-func (m model) fetchMoreTopComments(storyID int, start, limit int) tea.Cmd {
-	if m.detail == nil || storyID != m.detail.ID || start >= len(m.detail.Kids) {
-		return nil
-	}
-	end := start + limit
-	if end > len(m.detail.Kids) {
-		end = len(m.detail.Kids)
-	}
-	kids := append([]int(nil), m.detail.Kids[start:end]...)
-	return func() tea.Msg {
-		comments, err := m.client.GetTopComments(kids)
-		if err != nil {
-			return moreTopCommentsErrMsg{err: err}
-		}
-		return moreTopCommentsMsg{storyID: storyID, start: start, end: end, comments: comments}
+		return topCommentsMsg{story: story, comments: comments}
 	}
 }
 
 func (m model) refreshComments(storyID int) tea.Cmd {
-	limit := m.topCommentsLoaded
-	if limit <= 0 {
-		limit = initialTopCommentLoad
-	}
 	return func() tea.Msg {
 		story, err := m.client.GetItemFresh(storyID)
 		if err != nil {
 			return refreshCommentsErrMsg{err: err}
 		}
-		if m.commentSource == config.CommentSourceAlgolia {
-			comments, err := m.algolia.Thread(context.Background(), storyID)
-			if err == nil {
-				comments = algolia.ReorderByKids(comments, story.Kids)
-				return refreshCommentsMsg{
-					story:     *story,
-					comments:  comments,
-					loaded:    len(story.Kids),
-					allLoaded: true,
-				}
-			}
-			slog.Debug("algolia refresh failed, falling back to firebase", "story", storyID, "err", err)
-		}
-		if limit > len(story.Kids) {
-			limit = len(story.Kids)
-		}
-		comments, err := m.client.GetTopComments(story.Kids[:limit])
+		comments, err := m.algolia.Thread(context.Background(), storyID)
 		if err != nil {
 			return refreshCommentsErrMsg{err: err}
 		}
-		return refreshCommentsMsg{story: *story, comments: comments, loaded: limit}
+		comments = algolia.ReorderByKids(comments, story.Kids)
+		return refreshCommentsMsg{story: *story, comments: comments}
 	}
 }
 
@@ -673,15 +562,10 @@ func (m model) visibleStories() []hn.Story {
 }
 
 func (m model) networkBusy() bool {
-	if m.state == stateLoading || m.state == stateDetailLoading || m.commentsRefreshing || m.topCommentsLoading {
+	if m.state == stateLoading || m.state == stateDetailLoading || m.commentsRefreshing {
 		return true
 	}
 	for _, loading := range m.storiesLoading {
-		if loading {
-			return true
-		}
-	}
-	for _, loading := range m.childrenLoading {
 		if loading {
 			return true
 		}
@@ -708,7 +592,7 @@ func (m model) inlineNetworkIndicator() string {
 
 func (m model) listContentHeight() int {
 	headerHeight := 4 // tab top border + tab content + tab bottom border + newline
-	contentHeight := m.height - headerHeight - listBottomGap
+	contentHeight := m.height - headerHeight - listBottomGap - listProgressBarHeight
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -817,81 +701,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case topCommentsMsg:
-		slog.Debug("topCommentsMsg", "story", msg.story.ID, "comments", len(msg.comments), "loaded", msg.loaded, "total_kids", len(msg.story.Kids), "allLoaded", msg.allLoaded)
-		// Cancel any in-flight pre-fetch from a previous story.
-		if m.detailCancel != nil {
-			m.detailCancel()
-		}
-		m.detailCtx, m.detailCancel = context.WithCancel(context.Background())
 		m.detail = &msg.story
 		m.comments = msg.comments
 		m.collapsed = make(map[int]bool)
-		m.childrenLoaded = make(map[int]bool)
-		m.childrenLoading = make(map[int]bool)
 		m.childrenExpanded = make(map[int]bool)
-		m.topCommentsLoading = false
-		m.topCommentsLoaded = msg.loaded
 		m.commentCursor = 0
 		m.mdCache = make(markdownCache)
 		m.state = stateDetail
 		m.syncDetailViewport()
-		if msg.allLoaded {
-			markAllSubtreesLoaded(msg.comments, m.childrenLoaded)
-			m.rebuildCommentView()
-			m.viewport.SetYOffset(0)
-			return m, nil
-		}
 		m.rebuildCommentView()
 		m.viewport.SetYOffset(0)
-		return m, m.loadFirstCommentTree()
-
-	case moreTopCommentsMsg:
-		slog.Debug("moreTopCommentsMsg", "story", msg.storyID, "start", msg.start, "end", msg.end, "got", len(msg.comments))
-		if m.state != stateDetail || m.detail == nil || msg.storyID != m.detail.ID {
-			slog.Debug("moreTopCommentsMsg discarded", "state", m.state)
-			return m, nil
-		}
-		m.topCommentsLoading = false
-		if msg.start != m.topCommentsLoaded {
-			slog.Debug("moreTopCommentsMsg stale", "msg.start", msg.start, "loaded", m.topCommentsLoaded)
-			return m, nil
-		}
-		m.topCommentsLoaded = msg.end
-		m.comments = append(m.comments, msg.comments...)
-		m.rebuildCommentView()
-		return m, m.ensureTopCommentsLoaded()
-
-	case moreTopCommentsErrMsg:
-		slog.Debug("moreTopCommentsErrMsg", "err", msg.err)
-		m.topCommentsLoading = false
-		if m.state == stateDetail {
-			m.status = "load comments failed: " + msg.err.Error()
-		}
-		return m, nil
-
-	case subtreeDoneMsg:
-		slog.Debug("subtreeDoneMsg", "story", msg.storyID, "parent", msg.parentID, "phase", msg.phase, "children", len(msg.children))
-		// Always clear loading, even when discarding, so the spinner never
-		// gets stuck if UI state drifted while the fetch was in flight.
-		delete(m.childrenLoading, msg.parentID)
-		if m.state != stateDetail || m.detail == nil || msg.storyID != m.detail.ID {
-			return m, nil
-		}
-		parent := findCommentByID(m.comments, msg.parentID)
-		if parent == nil {
-			slog.Debug("subtreeDoneMsg parent not found", "parent", msg.parentID)
-			return m, nil
-		}
-		if msg.children != nil {
-			parent.Children = msg.children
-		}
-		// Only mark loaded when Phase 2 completed. Phase 1 only means the
-		// client retried Phase 2 to exhaustion; a later user expand will
-		// implicitly restart Phase 2.
-		if msg.phase == 2 {
-			m.childrenLoaded[msg.parentID] = true
-		}
-		m.rebuildCommentView()
 		return m, nil
 
 	case refreshCommentsMsg:
@@ -900,28 +719,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.commentsRefreshing = false
 		m.detail = &msg.story
-		if msg.allLoaded {
-			m.comments = msg.comments
-			m.client.InvalidateAllSubtrees()
-			m.childrenLoaded = make(map[int]bool)
-			markAllSubtreesLoaded(m.comments, m.childrenLoaded)
-		} else {
-			m.comments = mergeTopComments(m.comments, msg.comments)
-			m.client.InvalidateAllSubtrees()
-			m.childrenLoaded = loadedTopCommentIDs(m.comments)
-		}
-		m.childrenLoading = make(map[int]bool)
-		m.topCommentsLoading = false
-		m.topCommentsLoaded = msg.loaded
-		if m.childrenExpanded == nil {
-			m.childrenExpanded = make(map[int]bool)
-		}
+		m.comments = msg.comments
+		m.childrenExpanded = make(map[int]bool)
 		m.status = ""
 		m.rebuildCommentView()
-		if msg.allLoaded {
-			return m, nil
-		}
-		return m, m.loadFirstCommentTree()
+		return m, nil
 
 	case refreshCommentsErrMsg:
 		m.commentsRefreshing = false
@@ -1085,7 +887,7 @@ func (m *model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.listKeys.Read):
 		if item, ok := m.list.SelectedItem().(hn.Story); ok {
 			m.state = stateDetailLoading
-			return m, tea.Batch(m.spinner.Tick, m.fetchTopComments(item.Item))
+			return m, tea.Batch(m.spinner.Tick, m.fetchAlgoliaThread(item.Item))
 		}
 		return m, nil
 	}
@@ -1099,11 +901,6 @@ func (m *model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) leaveDetailView() {
-	if m.detailCancel != nil {
-		m.detailCancel()
-		m.detailCancel = nil
-	}
-
 	m.state = stateList
 	m.detail = nil
 	m.comments = nil
@@ -1112,11 +909,7 @@ func (m *model) leaveDetailView() {
 	m.storyBodyOffset = 0
 	m.mdCache = nil
 	m.collapsed = make(map[int]bool)
-	m.childrenLoaded = make(map[int]bool)
-	m.childrenLoading = make(map[int]bool)
 	m.childrenExpanded = make(map[int]bool)
-	m.topCommentsLoading = false
-	m.topCommentsLoaded = 0
 	m.commentsRefreshing = false
 	m.commentCursor = 0
 	m.pendingG = false
@@ -1125,7 +918,6 @@ func (m *model) leaveDetailView() {
 	m.showCommentTranslation = make(map[int]bool)
 	m.viewport.SetContent("")
 	m.viewport.SetYOffset(0)
-	m.client.InvalidateAllSubtrees()
 }
 func (m *model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Sync viewport height so scrollToComment uses the correct visible area
@@ -1208,7 +1000,7 @@ func (m *model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.viewport.SetYOffset(saved)
 			m.scrollToComment()
 		}
-		return m, m.ensureTopCommentsLoaded()
+		return m, nil
 
 	case key.Matches(msg, m.detailKeys.Down):
 		if m.commentCursor < len(m.flatComments)-1 {
@@ -1218,7 +1010,7 @@ func (m *model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.viewport.SetYOffset(saved)
 			m.scrollToComment()
 		}
-		return m, m.ensureTopCommentsLoaded()
+		return m, nil
 
 	case key.Matches(msg, m.detailKeys.Collapse):
 		if len(m.flatComments) > 0 && m.commentCursor < len(m.flatComments) {
@@ -1257,7 +1049,7 @@ func (m *model) updateDetail(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Viewport scrolling (PgUp/PgDn etc)
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
-	return m, tea.Batch(cmd, m.ensureTopCommentsLoaded())
+	return m, cmd
 }
 
 func (m model) View() tea.View {
@@ -1302,19 +1094,26 @@ func (m model) viewList() string {
 		return joinVisibleVertical(header, errView)
 	}
 
+	// Skip progress bar while filter input is active — the list manages its own layout.
+	if m.list.FilterState() == list.Filtering {
+		return joinVisibleVertical(header, content)
+	}
+
+	progressBar := m.renderStoryScrollBar()
+
 	if len(m.translating) > 0 {
 		spinnerView := lipgloss.NewStyle().Foreground(currentTheme.Muted).Padding(0, 2).Render(
 			m.spinner.View() + " translating...",
 		)
-		return joinVisibleVertical(header, content, spinnerView)
+		return joinVisibleVertical(header, content, progressBar, spinnerView)
 	}
 
 	if m.status != "" {
 		statusView := lipgloss.NewStyle().Foreground(currentTheme.Warning).Padding(0, 2).Render(m.status)
-		return joinVisibleVertical(header, content, statusView)
+		return joinVisibleVertical(header, content, progressBar, statusView)
 	}
 
-	return joinVisibleVertical(header, content)
+	return joinVisibleVertical(header, content, progressBar)
 }
 
 func (m model) listContentView() string {
@@ -1535,6 +1334,34 @@ func (m model) viewDetail() string {
 	return joinVisibleVertical(storyHeader, content, progressBar)
 }
 
+// renderStoryScrollBar renders a 1-row progress bar for the story list.
+// Position is based on the selected story's rank within the full category ID list.
+// Hidden (blank line) when the full list fits on screen.
+func (m model) renderStoryScrollBar() string {
+	if m.width <= 0 {
+		return strings.Repeat(" ", m.width)
+	}
+	total := len(m.storyIDs[m.category])
+	visible := m.visibleStoryCount()
+	if total <= visible {
+		return strings.Repeat(" ", m.width)
+	}
+	current := m.list.Index()
+	pct := float64(current) / float64(total-1)
+	if pct > 1 {
+		pct = 1
+	}
+	filled := int(pct * float64(m.width))
+	if filled > m.width {
+		filled = m.width
+	}
+	const cell = "▁"
+	filledStyle := lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	emptyStyle := lipgloss.NewStyle().Foreground(currentTheme.Surface)
+	return filledStyle.Render(strings.Repeat(cell, filled)) +
+		emptyStyle.Render(strings.Repeat(cell, m.width-filled))
+}
+
 // renderScrollBar renders a 1-row horizontal progress bar reflecting the
 // viewport scroll position. Hidden (blank line) when all content fits on screen.
 func (m model) renderScrollBar() string {
@@ -1737,34 +1564,6 @@ func (m *model) ensureStoriesLoadedThenPrefetchTabs() tea.Cmd {
 	return m.prefetchTabsIfNeeded()
 }
 
-func (m *model) ensureTopCommentsLoaded() tea.Cmd {
-	if m.state != stateDetail || m.detail == nil || m.topCommentsLoading {
-		return nil
-	}
-	if m.topCommentsLoaded >= len(m.detail.Kids) {
-		return nil
-	}
-	if m.viewport.Height() <= 0 || len(m.flatComments) == 0 {
-		return nil
-	}
-
-	nearCursorEnd := m.commentCursor >= len(m.flatComments)-3
-	visibleBottom := m.viewport.YOffset() + m.viewport.Height()
-	nearScrollEnd := visibleBottom+(m.viewport.Height()/2) >= m.viewport.TotalLineCount()
-	if !nearCursorEnd && !nearScrollEnd {
-		return nil
-	}
-
-	start := m.topCommentsLoaded
-	slog.Debug("ensureTopCommentsLoaded firing",
-		"loaded", start, "total_kids", len(m.detail.Kids),
-		"cursor", m.commentCursor, "flat", len(m.flatComments),
-		"nearCursor", nearCursorEnd, "nearScroll", nearScrollEnd,
-	)
-	m.topCommentsLoading = true
-	return tea.Batch(m.spinner.Tick, m.fetchMoreTopComments(m.detail.ID, start, topCommentLoadBatch))
-}
-
 func (m model) lazyStoryTarget() int {
 	target := initialStoryLoad
 	visible := m.visibleStoryCount()
@@ -1836,7 +1635,7 @@ func (m model) oneAndHalfScreenStoryCount() int {
 }
 
 func (m model) visibleStoryCount() int {
-	contentHeight := m.height - 4 - listBottomGap
+	contentHeight := m.height - 4 - listBottomGap - listProgressBarHeight
 	if contentHeight <= 0 {
 		return 0
 	}
@@ -1925,21 +1724,18 @@ func (m *model) rebuildCommentView() {
 		if len(c.Item.Kids) == 0 {
 			return ""
 		}
-		id := c.Item.ID
+		count := countSubtree(c)
 		replyWord := "replies"
-		count := len(c.Item.Kids) + 1
 		if count == 1 {
 			replyWord = "reply"
 		}
-		style := lipgloss.NewStyle().Foreground(currentTheme.Muted)
-		label := fmt.Sprintf("%d %s", count, replyWord)
-		if m.childrenLoading[id] {
-			return style.Render(m.spinner.View() + " " + label)
-		}
-		return style.Render(label)
+		return lipgloss.NewStyle().Foreground(currentTheme.Muted).Render(fmt.Sprintf("%d %s", count, replyWord))
 	}
 	childrenExpanded := func(c *hn.Comment) bool {
-		return m.childrenExpanded[c.Item.ID]
+		if explicit, ok := m.childrenExpanded[c.Item.ID]; ok {
+			return explicit
+		}
+		return true // default: expanded
 	}
 	m.flatComments = buildFlatComments(m.comments, m.collapsed, m.width-2, bodySource, translationSource, commentStatus, repliesStatus, childrenExpanded)
 
@@ -1981,12 +1777,6 @@ func (m *model) toggleSelectedReplies() tea.Cmd {
 	if m.state != stateDetail || len(m.flatComments) == 0 || m.commentCursor >= len(m.flatComments) {
 		return nil
 	}
-	if m.childrenLoaded == nil {
-		m.childrenLoaded = make(map[int]bool)
-	}
-	if m.childrenLoading == nil {
-		m.childrenLoading = make(map[int]bool)
-	}
 	if m.childrenExpanded == nil {
 		m.childrenExpanded = make(map[int]bool)
 	}
@@ -1997,154 +1787,14 @@ func (m *model) toggleSelectedReplies() tea.Cmd {
 	}
 
 	id := comment.Item.ID
-	if m.childrenLoaded[id] {
-		m.childrenExpanded[id] = !m.childrenExpanded[id]
-		m.rebuildCommentView()
-		return nil
-	}
-
-	m.childrenExpanded[id] = true
-	if m.childrenLoading[id] {
-		m.rebuildCommentView()
-		return nil
+	explicit, ok := m.childrenExpanded[id]
+	if !ok {
+		m.childrenExpanded[id] = false // was implicitly expanded, now collapse
+	} else {
+		m.childrenExpanded[id] = !explicit
 	}
 	m.rebuildCommentView()
-	return m.ensureSubtree(comment)
-}
-
-func (m *model) loadFirstCommentTree() tea.Cmd {
-	if m.state != stateDetail || len(m.comments) == 0 {
-		return nil
-	}
-	if m.childrenLoaded == nil {
-		m.childrenLoaded = make(map[int]bool)
-	}
-	if m.childrenLoading == nil {
-		m.childrenLoading = make(map[int]bool)
-	}
-	if m.childrenExpanded == nil {
-		m.childrenExpanded = make(map[int]bool)
-	}
-
-	first := m.comments[0]
-	if first == nil || len(first.Item.Kids) == 0 {
-		slog.Debug("loadFirstCommentTree skip", "reason", "no kids")
-		return nil
-	}
-	id := first.Item.ID
-	if m.childrenLoaded[id] || m.childrenLoading[id] {
-		slog.Debug("loadFirstCommentTree skip", "id", id, "loaded", m.childrenLoaded[id], "loading", m.childrenLoading[id])
-		return nil
-	}
-
-	slog.Debug("loadFirstCommentTree firing", "id", id, "kids", len(first.Item.Kids))
-	return m.ensureSubtree(first)
-}
-
-// ensureSubtree asks the client for (or subscribes to) a two-phase fetch of
-// the given parent's subtree. If the client already has a fully loaded
-// snapshot, we attach it synchronously and return nil. Otherwise we mark
-// loading and return a command that waits for the client's done signal
-// and then emits a subtreeDoneMsg. Shared by first-comment preload and
-// user-initiated expand.
-func (m *model) ensureSubtree(parent *hn.Comment) tea.Cmd {
-	if parent == nil || m.detail == nil {
-		return nil
-	}
-	if m.childrenLoaded == nil {
-		m.childrenLoaded = make(map[int]bool)
-	}
-	if m.childrenLoading == nil {
-		m.childrenLoading = make(map[int]bool)
-	}
-
-	parentID := parent.Item.ID
-	kids := append([]int(nil), parent.Item.Kids...)
-	storyID := m.detail.ID
-	snapshot, done, complete := m.client.EnsureSubtree(parentID, kids, parent.Depth+1)
-
-	if complete {
-		parent.Children = snapshot
-		m.childrenLoaded[parentID] = true
-		delete(m.childrenLoading, parentID)
-		m.rebuildCommentView()
-		return nil
-	}
-
-	m.childrenLoading[parentID] = true
-	m.rebuildCommentView()
-	client := m.client
-	return tea.Batch(m.spinner.Tick, func() tea.Msg {
-		<-done
-		children, phase := client.SubtreeSnapshot(parentID)
-		return subtreeDoneMsg{
-			storyID:  storyID,
-			parentID: parentID,
-			children: children,
-			phase:    phase,
-		}
-	})
-}
-
-func findCommentByID(comments []*hn.Comment, id int) *hn.Comment {
-	for _, c := range comments {
-		if c == nil {
-			continue
-		}
-		if c.Item.ID == id {
-			return c
-		}
-		if found := findCommentByID(c.Children, id); found != nil {
-			return found
-		}
-	}
 	return nil
-}
-
-func mergeTopComments(current, fresh []*hn.Comment) []*hn.Comment {
-	byID := make(map[int]*hn.Comment, len(current))
-	for _, c := range current {
-		if c != nil {
-			byID[c.Item.ID] = c
-		}
-	}
-
-	merged := make([]*hn.Comment, 0, len(fresh))
-	for _, c := range fresh {
-		if c == nil {
-			continue
-		}
-		if existing := byID[c.Item.ID]; existing != nil {
-			c.Children = existing.Children
-		}
-		merged = append(merged, c)
-	}
-	return merged
-}
-
-func loadedTopCommentIDs(comments []*hn.Comment) map[int]bool {
-	loaded := make(map[int]bool)
-	for _, c := range comments {
-		if c != nil && len(c.Children) > 0 {
-			loaded[c.Item.ID] = true
-		}
-	}
-	return loaded
-}
-
-// markAllSubtreesLoaded flags every node in the given comment trees as having
-// its subtree fully resolved. Used by the Algolia path where one request
-// returns the entire tree, so toggleSelectedReplies never needs to fetch.
-func markAllSubtreesLoaded(comments []*hn.Comment, loaded map[int]bool) {
-	for _, c := range comments {
-		if c == nil {
-			continue
-		}
-		loaded[c.Item.ID] = true
-		if len(c.Children) > 0 {
-			markAllSubtreesLoaded(c.Children, loaded)
-		}
-	}
 }
 
 // applyCommentHighlight assembles the viewport content with selection bar.

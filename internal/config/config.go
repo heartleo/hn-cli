@@ -8,17 +8,9 @@ import (
 
 // Config holds global CLI configuration.
 type Config struct {
-	Theme         string           `json:"theme,omitempty"`
-	CommentSource string           `json:"comment_source,omitempty"`
-	Translate     *TranslateConfig `json:"translate,omitempty"`
+	Theme     string           `json:"theme,omitempty"`
+	Translate *TranslateConfig `json:"translate,omitempty"`
 }
-
-// Comment-source values. Algolia fetches an entire thread in one request;
-// Firebase fans out per-item with two-phase subtree loading.
-const (
-	CommentSourceAlgolia  = "algolia"
-	CommentSourceFirebase = "firebase"
-)
 
 // TranslateConfig holds OpenAI-compatible translation settings.
 type TranslateConfig struct {
@@ -63,27 +55,6 @@ func SaveConfig(cfg Config) error {
 		return err
 	}
 	return os.WriteFile(ConfigPath(), data, 0o644)
-}
-
-// LoadCommentSource resolves the active comment source.
-// Precedence: HN_COMMENT_SOURCE env var > config.json > default (algolia).
-// Unknown values fall back to the default.
-func LoadCommentSource() string {
-	pick := func(v string) string {
-		switch v {
-		case CommentSourceAlgolia, CommentSourceFirebase:
-			return v
-		}
-		return ""
-	}
-	if v := pick(os.Getenv("HN_COMMENT_SOURCE")); v != "" {
-		return v
-	}
-	cfg, _ := LoadConfig()
-	if v := pick(cfg.CommentSource); v != "" {
-		return v
-	}
-	return CommentSourceAlgolia
 }
 
 // LoadTranslateConfig loads translation settings with environment overrides.

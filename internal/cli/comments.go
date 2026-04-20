@@ -115,8 +115,7 @@ func buildFlatComments(comments []*hn.Comment, collapsed map[int]bool, width int
 				triangle := lipgloss.NewStyle().Foreground(currentTheme.Muted).Render("▶ ")
 				header := authorStyle.Render(c.Item.By) +
 					timeStyle.Render(" · "+c.Item.RelativeTime())
-				// count = self + direct children
-				moreCount := len(c.Item.Kids) + 1
+				moreCount := countSubtree(c)
 				header += sepStyle.Render(" | ") + navStyle.Render(fmt.Sprintf("[%d more]", moreCount))
 				if commentStatus != nil {
 					if status := commentStatus(c); status != "" {
@@ -216,6 +215,22 @@ func assembleView(flat []flatComment, selectedIdx, width int) string {
 	}
 
 	return b.String()
+}
+
+// countSubtree returns the comment plus all loaded descendants. If a subtree
+// has not been loaded yet, fall back to the known direct Kids count.
+func countSubtree(c *hn.Comment) int {
+	if c == nil {
+		return 0
+	}
+	if len(c.Children) > 0 {
+		count := 1
+		for _, child := range c.Children {
+			count += countSubtree(child)
+		}
+		return count
+	}
+	return len(c.Item.Kids) + 1
 }
 
 func buildIndent(depth int) string {
