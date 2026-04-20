@@ -71,6 +71,7 @@ func TestListViewShowsHelpHintInHeader(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 30})
 	m = updated.(model)
 	m.state = stateList
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.stories[hn.CategoryTop] = []hn.Story{{Item: hn.Item{ID: 1, Title: "Story"}, Rank: 1}}
 	m.setListItems(m.stories[hn.CategoryTop])
 
@@ -423,13 +424,16 @@ func TestPrefetchTabsMarksNonCurrentCategoriesLoading(t *testing.T) {
 	}
 }
 
-func TestWindowSizeDoesNotPrefetchTabsBeforeCurrentTabLoads(t *testing.T) {
+func TestWindowSizeLoadsCurrentTabBeforePrefetchingTabs(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
 	m = updated.(model)
 
-	if cmd != nil {
-		t.Fatal("expected no background prefetch before current tab loads")
+	if cmd == nil {
+		t.Fatal("expected current tab load command")
+	}
+	if !m.storiesLoading[hn.CategoryTop] {
+		t.Fatal("expected current tab to be marked loading")
 	}
 	if m.tabsPrefetched {
 		t.Fatal("expected tabs not to be marked prefetched before current tab loads")
@@ -438,6 +442,16 @@ func TestWindowSizeDoesNotPrefetchTabsBeforeCurrentTabLoads(t *testing.T) {
 		if m.storiesLoading[cat] {
 			t.Fatalf("expected %s not to be preloading before current tab loads", cat)
 		}
+	}
+}
+
+func TestInitialStoryTargetUsesVisibleWindowPlusBuffer(t *testing.T) {
+	m := newModel(hn.CategoryTop)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
+	m = updated.(model)
+
+	if got := m.initialStoryTarget(); got != m.visibleStoryCount()+5 {
+		t.Fatalf("expected visible story count plus buffer, got %d", got)
 	}
 }
 
@@ -637,6 +651,7 @@ func TestLazyStoryTargetUsesVisibleWindowAndOneAndHalfScreens(t *testing.T) {
 
 	m.storyIDs[hn.CategoryTop] = make([]int, 100)
 	m.stories[hn.CategoryTop] = make([]hn.Story, initialStoryLoad)
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.list = list.New(nil, m.listDelegate(), 80, 20)
 	m.setListItems(m.stories[hn.CategoryTop])
 	m.list.Select(19)
@@ -654,6 +669,7 @@ func TestEnsureStoriesLoadedMarksCategoryLoading(t *testing.T) {
 
 	m.storyIDs[hn.CategoryTop] = make([]int, 100)
 	m.stories[hn.CategoryTop] = make([]hn.Story, initialStoryLoad)
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.list = list.New(nil, m.listDelegate(), 80, 20)
 	m.setListItems(m.stories[hn.CategoryTop])
 	m.list.Select(19)

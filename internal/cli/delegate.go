@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"charm.land/bubbles/v2/list"
@@ -20,6 +19,57 @@ type storyDelegate struct {
 	showTranslation map[int]bool
 }
 
+type storyDelegateStyles struct {
+	rank            lipgloss.Style
+	title           lipgloss.Style
+	domain          lipgloss.Style
+	meta            lipgloss.Style
+	score           lipgloss.Style
+	comment         lipgloss.Style
+	askPrefix       lipgloss.Style
+	showPrefix      lipgloss.Style
+	selectedRank    lipgloss.Style
+	selectedTitle   lipgloss.Style
+	selectedDomain  lipgloss.Style
+	selectedMeta    lipgloss.Style
+	selectedScore   lipgloss.Style
+	selectedComment lipgloss.Style
+	selectedAsk     lipgloss.Style
+	selectedShow    lipgloss.Style
+	selectedBG      lipgloss.Style
+	selectedCursor  string
+}
+
+var storyStyles = newStoryDelegateStyles()
+
+func refreshStoryDelegateStyles() {
+	storyStyles = newStoryDelegateStyles()
+}
+
+func newStoryDelegateStyles() storyDelegateStyles {
+	bg := currentTheme.Surface
+	return storyDelegateStyles{
+		rank:            lipgloss.NewStyle().Foreground(currentTheme.Muted),
+		title:           lipgloss.NewStyle().Foreground(currentTheme.Title),
+		domain:          lipgloss.NewStyle().Foreground(currentTheme.Muted),
+		meta:            lipgloss.NewStyle().Foreground(currentTheme.Muted),
+		score:           lipgloss.NewStyle().Foreground(currentTheme.Score),
+		comment:         lipgloss.NewStyle().Foreground(currentTheme.Comment),
+		askPrefix:       lipgloss.NewStyle().Foreground(currentTheme.Warning),
+		showPrefix:      lipgloss.NewStyle().Foreground(currentTheme.Info),
+		selectedRank:    lipgloss.NewStyle().Foreground(currentTheme.Muted).Background(bg),
+		selectedTitle:   lipgloss.NewStyle().Foreground(currentTheme.Title).Background(bg).Bold(true),
+		selectedDomain:  lipgloss.NewStyle().Foreground(currentTheme.Muted).Background(bg),
+		selectedMeta:    lipgloss.NewStyle().Foreground(currentTheme.Muted).Background(bg),
+		selectedScore:   lipgloss.NewStyle().Foreground(currentTheme.Score).Background(bg),
+		selectedComment: lipgloss.NewStyle().Foreground(currentTheme.Comment).Background(bg),
+		selectedAsk:     lipgloss.NewStyle().Foreground(currentTheme.Warning).Background(bg),
+		selectedShow:    lipgloss.NewStyle().Foreground(currentTheme.Info).Background(bg),
+		selectedBG:      lipgloss.NewStyle().Background(bg),
+		selectedCursor:  lipgloss.NewStyle().Foreground(currentTheme.Accent).Bold(true).Background(bg).Render("❯ "),
+	}
+}
+
 func (d storyDelegate) Height() int                             { return 3 }
 func (d storyDelegate) Spacing() int                            { return 1 }
 func (d storyDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
@@ -33,39 +83,33 @@ func (d storyDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	selected := index == m.Index()
 	width := d.width - 4 // left padding + margin
 
-	// --- Styles ---
-	rankStyle := lipgloss.NewStyle().Foreground(currentTheme.Muted)
-	titleStyle := lipgloss.NewStyle().Foreground(currentTheme.Title)
-	domainStyle := lipgloss.NewStyle().Foreground(currentTheme.Muted)
-	metaStyle := lipgloss.NewStyle().Foreground(currentTheme.Muted)
-	scoreStyle := lipgloss.NewStyle().Foreground(currentTheme.Score)
-	commentStyle := lipgloss.NewStyle().Foreground(currentTheme.Comment)
+	styles := storyStyles
+	rankStyle := styles.rank
+	titleStyle := styles.title
+	domainStyle := styles.domain
+	metaStyle := styles.meta
+	scoreStyle := styles.score
+	commentStyle := styles.comment
+	askPrefixStyle := styles.askPrefix
+	showPrefixStyle := styles.showPrefix
 	cursor := "  "
+	spacer := " "
 
-	bgStyle := lipgloss.NewStyle()
 	if selected {
-		bg := currentTheme.Surface
-		bgStyle = bgStyle.Background(bg)
-		cursor = lipgloss.NewStyle().Foreground(currentTheme.Accent).Bold(true).Background(bg).Render("❯ ")
-		rankStyle = rankStyle.Background(bg)
-		titleStyle = titleStyle.Background(bg).Bold(true)
-		domainStyle = domainStyle.Background(bg)
-		metaStyle = metaStyle.Background(bg)
-		scoreStyle = scoreStyle.Background(bg)
-		commentStyle = commentStyle.Background(bg)
+		cursor = styles.selectedCursor
+		spacer = styles.selectedBG.Render(" ")
+		rankStyle = styles.selectedRank
+		titleStyle = styles.selectedTitle
+		domainStyle = styles.selectedDomain
+		metaStyle = styles.selectedMeta
+		scoreStyle = styles.selectedScore
+		commentStyle = styles.selectedComment
+		askPrefixStyle = styles.selectedAsk
+		showPrefixStyle = styles.selectedShow
 	}
 
 	// --- Line 1: rank + title + domain ---
 	rank := rankStyle.Render(fmt.Sprintf("%2d.", story.Rank))
-
-	// Extract domain from URL
-	domain := ""
-	if story.Item.URL != "" {
-		if u, err := url.Parse(story.Item.URL); err == nil {
-			domain = u.Hostname()
-			domain = strings.TrimPrefix(domain, "www.")
-		}
-	}
 
 	// Title with prefix highlighting
 	title := story.Item.Title
@@ -78,8 +122,8 @@ func (d storyDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		translationLine = "translating..."
 	}
 	domainSuffix := ""
-	if domain != "" {
-		domainSuffix = bgStyle.Render(" ") + domainStyle.Render("("+domain+")")
+	if story.Domain != "" {
+		domainSuffix = spacer + domainStyle.Render("("+story.Domain+")")
 	}
 
 	domainWidth := lipgloss.Width(domainSuffix)
@@ -92,30 +136,22 @@ func (d storyDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 
 	var styledTitle string
 	if strings.HasPrefix(title, "Ask HN:") {
-		prefixStyle := lipgloss.NewStyle().Foreground(currentTheme.Warning)
-		if selected {
-			prefixStyle = prefixStyle.Background(currentTheme.Surface)
-		}
 		rest := title[7:]
-		styledTitle = prefixStyle.Render("Ask HN:") + titleStyle.Render(runewidth.Truncate(rest, titleMaxWidth-7, "…"))
+		styledTitle = askPrefixStyle.Render("Ask HN:") + titleStyle.Render(runewidth.Truncate(rest, titleMaxWidth-7, "…"))
 	} else if strings.HasPrefix(title, "Show HN:") {
-		prefixStyle := lipgloss.NewStyle().Foreground(currentTheme.Info)
-		if selected {
-			prefixStyle = prefixStyle.Background(currentTheme.Surface)
-		}
 		rest := title[8:]
-		styledTitle = prefixStyle.Render("Show HN:") + titleStyle.Render(runewidth.Truncate(rest, titleMaxWidth-8, "…"))
+		styledTitle = showPrefixStyle.Render("Show HN:") + titleStyle.Render(runewidth.Truncate(rest, titleMaxWidth-8, "…"))
 	} else {
 		styledTitle = titleStyle.Render(runewidth.Truncate(title, titleMaxWidth, "…"))
 	}
 
-	line1 := cursor + rank + bgStyle.Render(" ") + styledTitle + domainSuffix
+	line1 := cursor + rank + spacer + styledTitle + domainSuffix
 
 	// Pad line1 to full width for selected background
 	if selected {
 		pad := width + 2 - lipgloss.Width(line1)
 		if pad > 0 {
-			line1 += lipgloss.NewStyle().Background(currentTheme.Surface).Render(strings.Repeat(" ", pad))
+			line1 += styles.selectedBG.Render(strings.Repeat(" ", pad))
 		}
 	}
 
@@ -134,15 +170,15 @@ func (d storyDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	}
 
 	if selected {
-		line2 = bgStyle.Render(indent) + strings.TrimPrefix(line2, indent)
+		line2 = styles.selectedBG.Render(indent) + strings.TrimPrefix(line2, indent)
 		pad := width + 2 - lipgloss.Width(line2)
 		if pad > 0 {
-			line2 += bgStyle.Render(strings.Repeat(" ", pad))
+			line2 += styles.selectedBG.Render(strings.Repeat(" ", pad))
 		}
 	}
 
 	// --- Line 3: points by author time | comments ---
-	sp := bgStyle.Render(" ")
+	sp := spacer
 	meta := scoreStyle.Render(fmt.Sprintf("%d points", story.Item.Score)) +
 		sp + metaStyle.Render("by") +
 		sp + metaStyle.Render(story.Item.By) +
@@ -151,10 +187,10 @@ func (d storyDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	line3 := indent + meta
 
 	if selected {
-		line3 = bgStyle.Render(indent) + meta
+		line3 = styles.selectedBG.Render(indent) + meta
 		pad := width + 2 - lipgloss.Width(line3)
 		if pad > 0 {
-			line3 += bgStyle.Render(strings.Repeat(" ", pad))
+			line3 += styles.selectedBG.Render(strings.Repeat(" ", pad))
 		}
 	}
 

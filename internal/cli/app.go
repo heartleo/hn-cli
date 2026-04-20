@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -251,7 +252,7 @@ func newModel(cat hn.Category) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.fetchStories(m.category))
+	return m.spinner.Tick
 }
 
 func (m *model) showToast(message string) tea.Cmd {
@@ -264,7 +265,34 @@ func (m *model) showToast(message string) tea.Cmd {
 }
 
 func (m model) fetchStories(cat hn.Category) tea.Cmd {
-	return m.fetchStoriesLimit(cat, initialStoryLoad)
+	return m.fetchStoriesLimit(cat, m.initialStoryTarget())
+}
+
+func (m model) initialStoryTarget() int {
+	visible := m.visibleStoryCount()
+	if visible <= 0 {
+		return initialStoryLoad
+	}
+	return visible + 5
+}
+
+func storyFromItem(item hn.Item, rank int) hn.Story {
+	return hn.Story{
+		Item:   item,
+		Rank:   rank,
+		Domain: domainFromURL(item.URL),
+	}
+}
+
+func domainFromURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(u.Hostname(), "www.")
 }
 
 func (m model) fetchStoriesLimit(cat hn.Category, limit int) tea.Cmd {
@@ -291,7 +319,7 @@ func (m model) fetchStoriesLimit(cat hn.Category, limit int) tea.Cmd {
 			if item.ID == 0 {
 				continue
 			}
-			stories = append(stories, hn.Story{Item: item, Rank: i + 1})
+			stories = append(stories, storyFromItem(item, i+1))
 		}
 
 		return storiesMsg{cat: cat, stories: stories, ids: ids}
@@ -326,7 +354,7 @@ func (m model) fetchMoreStories(cat hn.Category, target int) tea.Cmd {
 			if item.ID == 0 {
 				continue
 			}
-			stories = append(stories, hn.Story{Item: item, Rank: rankOffset + i + 1})
+			stories = append(stories, storyFromItem(item, rankOffset+i+1))
 		}
 
 		return moreStoriesMsg{cat: cat, stories: stories}
@@ -361,7 +389,7 @@ func (m model) refreshVisibleStories(cat hn.Category) tea.Cmd {
 			if item.ID == 0 {
 				continue
 			}
-			stories = append(stories, hn.Story{Item: item, Rank: start + i + 1})
+			stories = append(stories, storyFromItem(item, start+i+1))
 		}
 
 		return refreshStoriesMsg{cat: cat, start: start, stories: stories, ids: ids, selected: selected}
@@ -623,6 +651,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateList {
 			m.scrollToStory()
 			return m, m.ensureStoriesLoadedThenPrefetchTabs()
+		}
+		if m.state == stateLoading && !m.storiesLoading[m.category] {
+			m.storiesLoading[m.category] = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchStories(m.category))
 		}
 		return m, nil
 

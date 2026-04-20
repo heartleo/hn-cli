@@ -128,6 +128,7 @@ func resolveTheme() {
 	if t, ok := themes[name]; ok {
 		currentTheme = t
 	}
+	refreshStoryDelegateStyles()
 }
 
 func themeNames() []string {
@@ -168,6 +169,7 @@ var themeCmd = &cobra.Command{
 		}
 
 		currentTheme = themes[name]
+		refreshStoryDelegateStyles()
 		fmt.Printf("%s Theme set to %s\n", colorGreen(symbolSuccess), colorBold(name))
 		fmt.Printf("%s Saved to: %s\n", colorFaint(symbolInfo), tildePath(config.ConfigPath()))
 		return nil
