@@ -18,6 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	hn "github.com/heartleo/hn-cli"
+	"github.com/heartleo/hn-cli/internal/algolia"
 	"github.com/heartleo/hn-cli/internal/config"
 	"github.com/heartleo/hn-cli/internal/translate"
 )
@@ -69,6 +70,15 @@ type moreStoriesMsg struct {
 	stories []hn.Story
 }
 
+// moreStoriesErrMsg signals failure of a background story fetch (lazy-load
+// pagination or user-initiated refresh). Unlike errMsg, it must not force
+// a state transition — the user may be reading comments when a background
+// prefetch fails, and bouncing them back to the list would be jarring.
+type moreStoriesErrMsg struct {
+	cat hn.Category
+	err error
+}
+
 type refreshStoriesMsg struct {
 	cat      hn.Category
 	start    int
@@ -81,6 +91,11 @@ type topCommentsMsg struct {
 	story    hn.Item
 	comments []*hn.Comment
 	loaded   int
+	// allLoaded is true when comments already contains the entire resolved
+	// comment tree (e.g. fetched via Algolia in one call). The handler then
+	// skips loadFirstCommentTree and marks every node's subtree as loaded
+	// so toggleSelectedReplies becomes a pure UI operation.
+	allLoaded bool
 }
 
 type moreTopCommentsMsg struct {
@@ -105,9 +120,10 @@ type subtreeDoneMsg struct {
 }
 
 type refreshCommentsMsg struct {
-	story    hn.Item
-	comments []*hn.Comment
-	loaded   int
+	story     hn.Item
+	comments  []*hn.Comment
+	loaded    int
+	allLoaded bool
 }
 
 type refreshCommentsErrMsg struct {
@@ -166,6 +182,8 @@ type model struct {
 	detailKeys detailKeyMap
 
 	client             *hn.Client
+	algolia            *algolia.Fetcher
+	commentSource      string
 	translator         *translate.Client
 	storyIDs           map[hn.Category][]int
 	stories            map[hn.Category][]hn.Story
@@ -253,6 +271,8 @@ func newModel(cat hn.Category) model {
 		listKeys:               newListKeyMap(),
 		detailKeys:             newDetailKeyMap(),
 		client:                 hn.NewClient(),
+		algolia:                algolia.NewFetcher(),
+		commentSource:          config.LoadCommentSource(),
 		translator:             translator,
 		storyIDs:               make(map[hn.Category][]int),
 		stories:                make(map[hn.Category][]hn.Story),
@@ -338,7 +358,7 @@ func (m model) fetchMoreStories(cat hn.Category, target int) tea.Cmd {
 	return func() tea.Msg {
 		items, err := m.client.GetItems(nextIDs)
 		if err != nil {
-			return errMsg{err}
+			return moreStoriesErrMsg{cat: cat, err: err}
 		}
 
 		stories := make([]hn.Story, 0, len(items))
@@ -359,7 +379,7 @@ func (m model) refreshVisibleStories(cat hn.Category) tea.Cmd {
 	return func() tea.Msg {
 		ids, err := m.client.Stories(cat)
 		if err != nil {
-			return errMsg{err}
+			return moreStoriesErrMsg{cat: cat, err: err}
 		}
 		if start > len(ids) {
 			start = len(ids)
@@ -373,7 +393,7 @@ func (m model) refreshVisibleStories(cat hn.Category) tea.Cmd {
 
 		items, err := m.client.GetItems(ids[start:end])
 		if err != nil {
-			return errMsg{err}
+			return moreStoriesErrMsg{cat: cat, err: err}
 		}
 
 		stories := make([]hn.Story, 0, len(items))
@@ -393,6 +413,13 @@ func (m model) fetchTopComments(story hn.Item) tea.Cmd {
 }
 
 func (m model) fetchTopCommentsLimit(story hn.Item, limit int) tea.Cmd {
+	if m.commentSource == config.CommentSourceAlgolia {
+		return m.fetchAlgoliaThread(story, limit)
+	}
+	return m.fetchFirebaseTopComments(story, limit)
+}
+
+func (m model) fetchFirebaseTopComments(story hn.Item, limit int) tea.Cmd {
 	return func() tea.Msg {
 		end := limit
 		if end <= 0 || end > len(story.Kids) {
@@ -403,6 +430,26 @@ func (m model) fetchTopCommentsLimit(story hn.Item, limit int) tea.Cmd {
 			return errMsg{err}
 		}
 		return topCommentsMsg{story: story, comments: comments, loaded: end}
+	}
+}
+
+// fetchAlgoliaThread pulls the entire comment tree in one request. On failure
+// (HTTP error, Algolia indexing lag, ctx cancel, etc.) it falls back to the
+// Firebase per-item path so the user always gets *something*.
+func (m model) fetchAlgoliaThread(story hn.Item, limit int) tea.Cmd {
+	return func() tea.Msg {
+		comments, err := m.algolia.Thread(context.Background(), story.ID)
+		if err != nil {
+			slog.Debug("algolia thread failed, falling back to firebase", "story", story.ID, "err", err)
+			return m.fetchFirebaseTopComments(story, limit)()
+		}
+		comments = algolia.ReorderByKids(comments, story.Kids)
+		return topCommentsMsg{
+			story:     story,
+			comments:  comments,
+			loaded:    len(story.Kids),
+			allLoaded: true,
+		}
 	}
 }
 
@@ -433,6 +480,19 @@ func (m model) refreshComments(storyID int) tea.Cmd {
 		story, err := m.client.GetItemFresh(storyID)
 		if err != nil {
 			return refreshCommentsErrMsg{err: err}
+		}
+		if m.commentSource == config.CommentSourceAlgolia {
+			comments, err := m.algolia.Thread(context.Background(), storyID)
+			if err == nil {
+				comments = algolia.ReorderByKids(comments, story.Kids)
+				return refreshCommentsMsg{
+					story:     *story,
+					comments:  comments,
+					loaded:    len(story.Kids),
+					allLoaded: true,
+				}
+			}
+			slog.Debug("algolia refresh failed, falling back to firebase", "story", storyID, "err", err)
 		}
 		if limit > len(story.Kids) {
 			limit = len(story.Kids)
@@ -688,6 +748,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateList
 		return m, nil
 
+	case moreStoriesErrMsg:
+		slog.Debug("moreStoriesErrMsg", "cat", msg.cat, "err", msg.err)
+		delete(m.storiesLoading, msg.cat)
+		if msg.cat == m.category && m.state == stateList {
+			m.status = "load more failed: " + msg.err.Error()
+		}
+		return m, nil
+
 	case storiesErrMsg:
 		delete(m.storiesLoading, msg.cat)
 		if msg.cat == m.category {
@@ -749,7 +817,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case topCommentsMsg:
-		slog.Debug("topCommentsMsg", "story", msg.story.ID, "comments", len(msg.comments), "loaded", msg.loaded, "total_kids", len(msg.story.Kids))
+		slog.Debug("topCommentsMsg", "story", msg.story.ID, "comments", len(msg.comments), "loaded", msg.loaded, "total_kids", len(msg.story.Kids), "allLoaded", msg.allLoaded)
 		// Cancel any in-flight pre-fetch from a previous story.
 		if m.detailCancel != nil {
 			m.detailCancel()
@@ -767,6 +835,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mdCache = make(markdownCache)
 		m.state = stateDetail
 		m.syncDetailViewport()
+		if msg.allLoaded {
+			markAllSubtreesLoaded(msg.comments, m.childrenLoaded)
+			m.rebuildCommentView()
+			m.viewport.SetYOffset(0)
+			return m, nil
+		}
 		m.rebuildCommentView()
 		m.viewport.SetYOffset(0)
 		return m, m.loadFirstCommentTree()
@@ -826,9 +900,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.commentsRefreshing = false
 		m.detail = &msg.story
-		m.comments = mergeTopComments(m.comments, msg.comments)
-		m.client.InvalidateAllSubtrees()
-		m.childrenLoaded = loadedTopCommentIDs(m.comments)
+		if msg.allLoaded {
+			m.comments = msg.comments
+			m.client.InvalidateAllSubtrees()
+			m.childrenLoaded = make(map[int]bool)
+			markAllSubtreesLoaded(m.comments, m.childrenLoaded)
+		} else {
+			m.comments = mergeTopComments(m.comments, msg.comments)
+			m.client.InvalidateAllSubtrees()
+			m.childrenLoaded = loadedTopCommentIDs(m.comments)
+		}
 		m.childrenLoading = make(map[int]bool)
 		m.topCommentsLoading = false
 		m.topCommentsLoaded = msg.loaded
@@ -837,6 +918,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = ""
 		m.rebuildCommentView()
+		if msg.allLoaded {
+			return m, nil
+		}
 		return m, m.loadFirstCommentTree()
 
 	case refreshCommentsErrMsg:
@@ -2046,6 +2130,21 @@ func loadedTopCommentIDs(comments []*hn.Comment) map[int]bool {
 		}
 	}
 	return loaded
+}
+
+// markAllSubtreesLoaded flags every node in the given comment trees as having
+// its subtree fully resolved. Used by the Algolia path where one request
+// returns the entire tree, so toggleSelectedReplies never needs to fetch.
+func markAllSubtreesLoaded(comments []*hn.Comment, loaded map[int]bool) {
+	for _, c := range comments {
+		if c == nil {
+			continue
+		}
+		loaded[c.Item.ID] = true
+		if len(c.Children) > 0 {
+			markAllSubtreesLoaded(c.Children, loaded)
+		}
+	}
 }
 
 // applyCommentHighlight assembles the viewport content with selection bar.

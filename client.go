@@ -438,10 +438,13 @@ func (c *Client) runSubtree(parentID int, kidIDs []int, startDepth, startPhase i
 	if startPhase < 1 {
 		children, err := c.GetDirectChildren(c.ctx, kidIDs, startDepth)
 		if err != nil {
+			// Don't reset attempts here: the defer will close entry.done, and the
+			// "isClosed(entry.done) && entry.phase < 2" branch in EnsureSubtree
+			// will allocate a fresh done channel and relaunch. Resetting attempts
+			// while done is still open lets a concurrent EnsureSubtree caller
+			// match the "first ever call" branch and spawn a second goroutine,
+			// which then races to close the same done channel and panics.
 			slog.Debug("EnsureSubtree phase1 error", "parent", parentID, "err", err)
-			entry.mu.Lock()
-			entry.attempts = 0 // allow implicit restart
-			entry.mu.Unlock()
 			return
 		}
 		entry.mu.Lock()
