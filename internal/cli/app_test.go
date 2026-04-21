@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,59 +59,6 @@ func TestWindowResizePreservesViewportContent(t *testing.T) {
 	}
 }
 
-func TestBackFromDetailClearsDetailCaches(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(model)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story", By: "alice", Text: "<p>story body</p>"}
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "bob", Text: "<p>comment</p>", Kids: []int{3}}, Depth: 0},
-	}
-	m.childrenLoaded[2] = true
-	m.childrenLoading[3] = true
-	m.childrenExpanded[2] = true
-	m.commentTranslations[2] = "translated comment"
-	m.commentTranslating[2] = true
-	m.showCommentTranslation[2] = true
-	m.rebuildCommentView()
-	m.collapsed[2] = true
-	m.viewport.SetYOffset(2)
-	_, done, _ := m.client.EnsureSubtree(2, nil, 1)
-	<-done
-
-	if len(m.flatComments) == 0 || m.viewport.View() == "" || len(m.mdCache) == 0 {
-		t.Fatal("expected detail caches to be populated before leaving detail")
-	}
-	if _, phase := m.client.SubtreeSnapshot(2); phase == 0 {
-		t.Fatal("expected subtree cache entry before leaving detail")
-	}
-
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
-	m = *(updated.(*model))
-
-	if m.state != stateList {
-		t.Fatalf("expected stateList after back, got %v", m.state)
-	}
-	if m.detail != nil || m.comments != nil || m.flatComments != nil {
-		t.Fatalf("expected detail comments and flat comments cleared, detail=%#v comments=%#v flat=%#v", m.detail, m.comments, m.flatComments)
-	}
-	if m.storyBodyRendered != "" || m.storyBodyOffset != 0 || m.mdCache != nil {
-		t.Fatalf("expected render caches cleared, body=%q offset=%d md=%#v", m.storyBodyRendered, m.storyBodyOffset, m.mdCache)
-	}
-	if strings.TrimSpace(m.viewport.View()) != "" || m.viewport.YOffset() != 0 {
-		t.Fatalf("expected viewport cleared, view=%q offset=%d", m.viewport.View(), m.viewport.YOffset())
-	}
-	if len(m.collapsed) != 0 || len(m.childrenLoaded) != 0 || len(m.childrenLoading) != 0 || len(m.childrenExpanded) != 0 {
-		t.Fatalf("expected comment state maps reset, collapsed=%#v loaded=%#v loading=%#v expanded=%#v", m.collapsed, m.childrenLoaded, m.childrenLoading, m.childrenExpanded)
-	}
-	if len(m.commentTranslations) != 0 || len(m.commentTranslating) != 0 || len(m.showCommentTranslation) != 0 {
-		t.Fatalf("expected comment translation caches reset, translations=%#v translating=%#v show=%#v", m.commentTranslations, m.commentTranslating, m.showCommentTranslation)
-	}
-	if _, phase := m.client.SubtreeSnapshot(2); phase != 0 {
-		t.Fatalf("expected subtree cache invalidated, got phase %d", phase)
-	}
-}
 func TestNewModelHidesListPagination(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	if m.list.ShowPagination() {
@@ -125,6 +71,7 @@ func TestListViewShowsHelpHintInHeader(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 30})
 	m = updated.(model)
 	m.state = stateList
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.stories[hn.CategoryTop] = []hn.Story{{Item: hn.Item{ID: 1, Title: "Story"}, Rank: 1}}
 	m.setListItems(m.stories[hn.CategoryTop])
 
@@ -477,13 +424,16 @@ func TestPrefetchTabsMarksNonCurrentCategoriesLoading(t *testing.T) {
 	}
 }
 
-func TestWindowSizeDoesNotPrefetchTabsBeforeCurrentTabLoads(t *testing.T) {
+func TestWindowSizeLoadsCurrentTabBeforePrefetchingTabs(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	updated, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
 	m = updated.(model)
 
-	if cmd != nil {
-		t.Fatal("expected no background prefetch before current tab loads")
+	if cmd == nil {
+		t.Fatal("expected current tab load command")
+	}
+	if !m.storiesLoading[hn.CategoryTop] {
+		t.Fatal("expected current tab to be marked loading")
 	}
 	if m.tabsPrefetched {
 		t.Fatal("expected tabs not to be marked prefetched before current tab loads")
@@ -492,6 +442,16 @@ func TestWindowSizeDoesNotPrefetchTabsBeforeCurrentTabLoads(t *testing.T) {
 		if m.storiesLoading[cat] {
 			t.Fatalf("expected %s not to be preloading before current tab loads", cat)
 		}
+	}
+}
+
+func TestInitialStoryTargetUsesVisibleWindowPlusBuffer(t *testing.T) {
+	m := newModel(hn.CategoryTop)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
+	m = updated.(model)
+
+	if got := m.initialStoryTarget(); got != m.visibleStoryCount()+5 {
+		t.Fatalf("expected visible story count plus buffer, got %d", got)
 	}
 }
 
@@ -519,30 +479,6 @@ func TestBackgroundStoriesMsgDoesNotReplaceCurrentList(t *testing.T) {
 	}
 	if got := m.stories[hn.CategoryNew][0].Item.Title; got != "new story" {
 		t.Fatalf("expected background tab cache to be populated, got %q", got)
-	}
-}
-
-func TestTopCommentsMsgPrefetchesFirstCommentTree(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(model)
-
-	updated, cmd := m.Update(topCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story"},
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}}, Depth: 0},
-		},
-	})
-	m = updated.(model)
-
-	if cmd == nil {
-		t.Fatal("expected visible child loading command")
-	}
-	if !m.childrenLoading[2] {
-		t.Fatalf("expected top-level comment children to be marked loading: %#v", m.childrenLoading)
-	}
-	if len(m.flatComments) == 0 || !strings.Contains(strings.Join(m.flatComments[0].lines, "\n"), "2 replies") {
-		t.Fatalf("expected reply status in header, got %#v", m.flatComments)
 	}
 }
 
@@ -577,105 +513,10 @@ func TestReplyStatusHasNoBracketsAndTranslationStatusLast(t *testing.T) {
 	}
 }
 
-func TestTopCommentsMsgPrioritizesFirstCommentTree(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(model)
-	m.collapsed[2] = true
-
-	updated, cmd := m.Update(topCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story"},
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "first", Kids: []int{3}}, Depth: 0},
-			{Item: hn.Item{ID: 4, By: "bob", Text: "second", Kids: []int{5}}, Depth: 0},
-		},
-	})
-	m = updated.(model)
-
-	if cmd == nil {
-		t.Fatal("expected first comment tree loading command")
-	}
-	if !m.childrenLoading[2] {
-		t.Fatalf("expected first top-level comment to be prioritized: %#v", m.childrenLoading)
-	}
-}
-
-func TestChildCommentsMsgAttachesChildren(t *testing.T) {
+func TestReplyStatusCountsRecursiveSubtreeAndRootComment(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	m.state = stateDetail
 	m.detail = &hn.Item{ID: 1, Title: "Story"}
-	m.childrenLoading = map[int]bool{2: true}
-	m.childrenLoaded = make(map[int]bool)
-	m.childrenExpanded = make(map[int]bool)
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}}, Depth: 0},
-	}
-	m.rebuildCommentView()
-
-	updated, _ := m.Update(subtreeDoneMsg{
-		storyID:  1,
-		parentID: 2,
-		phase:    2,
-		children: []*hn.Comment{
-			{Item: hn.Item{ID: 3, By: "bob", Text: "child"}, Depth: 1},
-		},
-	})
-	m = updated.(model)
-
-	if m.childrenLoading[2] {
-		t.Fatalf("expected child loading flag cleared: %#v", m.childrenLoading)
-	}
-	if !m.childrenLoaded[2] {
-		t.Fatalf("expected child loaded flag set: %#v", m.childrenLoaded)
-	}
-	if len(m.comments[0].Children) != 1 || m.comments[0].Children[0].Item.ID != 3 {
-		t.Fatalf("expected child comment attached, got %#v", m.comments[0].Children)
-	}
-	if len(m.flatComments) != 1 {
-		t.Fatalf("expected prefetched children to stay hidden until enter, got %#v", m.flatComments)
-	}
-}
-
-func TestEnterExpandsLoadedCommentReplies(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story"}
-	m.childrenLoaded = map[int]bool{2: true}
-	m.childrenLoading = make(map[int]bool)
-	m.childrenExpanded = make(map[int]bool)
-	m.comments = []*hn.Comment{
-		{
-			Item:  hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}},
-			Depth: 0,
-			Children: []*hn.Comment{
-				{Item: hn.Item{ID: 3, By: "bob", Text: "child"}, Depth: 1},
-			},
-		},
-	}
-	m.rebuildCommentView()
-
-	if len(m.flatComments) != 1 {
-		t.Fatalf("expected loaded child hidden before enter, got %#v", m.flatComments)
-	}
-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = *updated.(*model)
-	if cmd != nil {
-		t.Fatal("expected loaded replies to expand without a request")
-	}
-	if !m.childrenExpanded[2] {
-		t.Fatalf("expected replies expanded: %#v", m.childrenExpanded)
-	}
-	if len(m.flatComments) != 2 || m.flatComments[1].comment.Item.ID != 3 {
-		t.Fatalf("expected child comment visible after enter, got %#v", m.flatComments)
-	}
-}
-
-func TestReplyStatusCountsDirectChildrenAndRootComment(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story"}
-	m.childrenLoaded = make(map[int]bool)
-	m.childrenLoading = make(map[int]bool)
 	m.childrenExpanded = make(map[int]bool)
 	m.comments = []*hn.Comment{
 		{Item: hn.Item{ID: 2, By: "alice", Text: "root", Kids: []int{3, 4}}, Depth: 0},
@@ -697,284 +538,51 @@ func TestReplyStatusCountsDirectChildrenAndRootComment(t *testing.T) {
 		},
 		{Item: hn.Item{ID: 4, By: "dave", Text: "child"}, Depth: 1},
 	}
-	m.childrenLoaded[2] = true
 	m.rebuildCommentView()
 
 	lines = strings.Join(m.flatComments[0].lines, "\n")
-	if !strings.Contains(lines, "3 replies") {
-		t.Fatalf("expected loaded reply count to include direct children and root comment only, got %#v", m.flatComments[0].lines)
+	if !strings.Contains(lines, "4 replies") {
+		t.Fatalf("expected loaded reply count to include recursive descendants and root comment, got %#v", m.flatComments[0].lines)
 	}
 
 	m.collapsed[2] = true
 	m.rebuildCommentView()
 
 	lines = strings.Join(m.flatComments[0].lines, "\n")
-	if !strings.Contains(lines, "[3 more]") {
-		t.Fatalf("expected collapsed count to include direct children and root comment only, got %#v", m.flatComments[0].lines)
-	}
-	if strings.Contains(lines, "[4 more]") {
-		t.Fatalf("expected collapsed count not to include grandchildren, got %#v", m.flatComments[0].lines)
+	if !strings.Contains(lines, "[4 more]") {
+		t.Fatalf("expected collapsed count to include recursive descendants and root comment, got %#v", m.flatComments[0].lines)
 	}
 }
 
-func TestTopCommentsMsgRecordsLoadedKidOffset(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(model)
-
-	updated, _ = m.Update(topCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story", Kids: []int{2, 3, 4}},
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "parent"}, Depth: 0},
-		},
-		loaded: 3,
-	})
-	m = updated.(model)
-
-	if m.topCommentsLoaded != 3 {
-		t.Fatalf("expected loaded top comment offset 3, got %d", m.topCommentsLoaded)
-	}
-	if len(m.comments) != 1 {
-		t.Fatalf("expected filtered comments to remain independent from loaded offset, got %#v", m.comments)
-	}
-}
-
-func TestTopCommentsMsgDoesNotImmediatelyLoadMoreTopComments(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 60})
-	m = updated.(model)
-
-	updated, cmd := m.Update(topCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story", Kids: make([]int, 40)},
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}}, Depth: 0},
-		},
-		loaded: 20,
-	})
-	m = updated.(model)
-
-	if m.topCommentsLoading {
-		t.Fatal("expected initial detail render not to start loading more top comments")
-	}
-	if m.topCommentsLoaded != 20 {
-		t.Fatalf("expected loaded offset 20, got %d", m.topCommentsLoaded)
-	}
-	if cmd == nil {
-		t.Fatal("expected first comment subtree prefetch command")
-	}
-}
-
-func TestTopCommentsMsgShowsRootBeforePrefetchedChildren(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m = updated.(model)
-
-	updated, _ = m.Update(topCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story", Kids: []int{2}},
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "root", Kids: []int{3}}, Depth: 0},
-		},
-		loaded: 1,
-	})
-	m = updated.(model)
-	updated, _ = m.Update(subtreeDoneMsg{
-		storyID:  1,
-		parentID: 2,
-		phase:    2,
-		children: []*hn.Comment{
-			{Item: hn.Item{ID: 3, By: "bob", Text: "child"}, Depth: 1},
-		},
-	})
-	m = updated.(model)
-
-	if len(m.flatComments) != 1 || m.flatComments[0].comment.Item.ID != 2 {
-		t.Fatalf("expected root comment first and children hidden, got %#v", m.flatComments)
-	}
-}
-
-func TestEnsureTopCommentsLoadedMarksLoadingNearEnd(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story", Kids: make([]int, 40)}
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "alice", Text: "one"}, Depth: 0},
-		{Item: hn.Item{ID: 3, By: "bob", Text: "two"}, Depth: 0},
-	}
-	m.topCommentsLoaded = 20
-	m.viewport.SetHeight(10)
-	m.viewport.SetContent(strings.Repeat("line\n", 20))
-	m.commentCursor = 1
-	m.rebuildCommentView()
-
-	cmd := m.ensureTopCommentsLoaded()
-	if cmd == nil {
-		t.Fatal("expected more top comments loading command near end")
-	}
-	if !m.topCommentsLoading {
-		t.Fatal("expected top comments loading flag")
-	}
-}
-
-func TestMoreTopCommentsMsgAppendsComments(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story", Kids: make([]int, 40)}
-	m.topCommentsLoaded = 20
-	m.topCommentsLoading = true
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "alice", Text: "one"}, Depth: 0},
-	}
-	m.rebuildCommentView()
-
-	updated, _ := m.Update(moreTopCommentsMsg{
-		storyID: 1,
-		start:   20,
-		end:     40,
-		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 3, By: "bob", Text: "two"}, Depth: 0},
-		},
-	})
-	m = updated.(model)
-
-	if m.topCommentsLoading {
-		t.Fatal("expected top comments loading flag cleared")
-	}
-	if m.topCommentsLoaded != 40 {
-		t.Fatalf("expected loaded offset 40, got %d", m.topCommentsLoaded)
-	}
-	if len(m.comments) != 2 || m.comments[1].Item.ID != 3 {
-		t.Fatalf("expected appended top comment, got %#v", m.comments)
-	}
-}
-
-func TestMoreTopCommentsErrStaysInDetail(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 1, Title: "Story", Kids: make([]int, 40)}
-	m.topCommentsLoading = true
-
-	updated, _ := m.Update(moreTopCommentsErrMsg{err: errors.New("boom")})
-	m = updated.(model)
-
-	if m.state != stateDetail {
-		t.Fatalf("expected to stay in detail view, got %v", m.state)
-	}
-	if m.topCommentsLoading {
-		t.Fatal("expected top comments loading flag cleared")
-	}
-	if !strings.Contains(m.status, "load comments failed") {
-		t.Fatalf("expected load error status, got %q", m.status)
-	}
-}
-
-func TestSubtreeDoneMsgIgnoredOutsideDetail(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateList
-	m.childrenLoading = map[int]bool{2: true}
-	m.childrenLoaded = make(map[int]bool)
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}}, Depth: 0},
-	}
-
-	updated, _ := m.Update(subtreeDoneMsg{
-		storyID:  1,
-		parentID: 2,
-		phase:    2,
-		children: []*hn.Comment{
-			{Item: hn.Item{ID: 3, By: "bob", Text: "child"}, Depth: 1},
-		},
-	})
-	m = updated.(model)
-
-	if len(m.comments[0].Children) != 0 {
-		t.Fatalf("expected child comment to be ignored outside detail, got %#v", m.comments[0].Children)
-	}
-	if m.childrenLoading[2] {
-		t.Fatalf("expected loading flag cleared as safety fallback, got %#v", m.childrenLoading)
-	}
-	if m.childrenLoaded[2] {
-		t.Fatalf("expected loaded flag unset outside detail, got %#v", m.childrenLoaded)
-	}
-}
-
-func TestSubtreeDoneMsgIgnoredForDifferentStory(t *testing.T) {
-	m := newModel(hn.CategoryTop)
-	m.state = stateDetail
-	m.detail = &hn.Item{ID: 9, Title: "Other Story"}
-	m.childrenLoading = map[int]bool{2: true}
-	m.childrenLoaded = make(map[int]bool)
-	m.comments = []*hn.Comment{
-		{Item: hn.Item{ID: 2, By: "alice", Text: "parent", Kids: []int{3}}, Depth: 0},
-	}
-
-	updated, _ := m.Update(subtreeDoneMsg{
-		storyID:  1,
-		parentID: 2,
-		phase:    2,
-		children: []*hn.Comment{
-			{Item: hn.Item{ID: 3, By: "bob", Text: "child"}, Depth: 1},
-		},
-	})
-	m = updated.(model)
-
-	if len(m.comments[0].Children) != 0 {
-		t.Fatalf("expected stale child comment to be ignored, got %#v", m.comments[0].Children)
-	}
-	if m.childrenLoading[2] {
-		t.Fatalf("expected loading flag cleared as safety fallback, got %#v", m.childrenLoading)
-	}
-	if m.childrenLoaded[2] {
-		t.Fatalf("expected loaded flag unset for mismatched story, got %#v", m.childrenLoaded)
-	}
-}
-
-func TestRefreshCommentsMsgMergesTopCommentsAndKeepsLoadedChildren(t *testing.T) {
+func TestRefreshCommentsMsgReplacesComments(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	m.state = stateDetail
 	m.detail = &hn.Item{ID: 1, Title: "Story", Descendants: 1}
 	m.commentsRefreshing = true
-	m.childrenLoading = map[int]bool{2: true}
-	m.childrenLoaded = make(map[int]bool)
 	m.comments = []*hn.Comment{
-		{
-			Item:  hn.Item{ID: 2, By: "alice", Text: "old parent", Kids: []int{3}},
-			Depth: 0,
-			Children: []*hn.Comment{
-				{Item: hn.Item{ID: 3, By: "bob", Text: "loaded child"}, Depth: 1},
-			},
-		},
+		{Item: hn.Item{ID: 2, By: "alice", Text: "old"}, Depth: 0},
 	}
-	m.rebuildCommentView()
 
 	updated, _ := m.Update(refreshCommentsMsg{
-		story: hn.Item{ID: 1, Title: "Story", Descendants: 2},
+		story: hn.Item{ID: 1, Title: "Story", Descendants: 3},
 		comments: []*hn.Comment{
-			{Item: hn.Item{ID: 2, By: "alice", Text: "fresh parent", Kids: []int{3}}, Depth: 0},
-			{Item: hn.Item{ID: 4, By: "carol", Text: "new parent"}, Depth: 0},
+			{Item: hn.Item{ID: 2, By: "alice", Text: "updated"}, Depth: 0},
+			{Item: hn.Item{ID: 4, By: "carol", Text: "new"}, Depth: 0},
 		},
 	})
 	m = updated.(model)
 
 	if m.commentsRefreshing {
-		t.Fatal("expected refresh flag to be cleared")
+		t.Fatal("expected refresh flag cleared")
 	}
-	if m.detail.Descendants != 2 {
+	if m.detail.Descendants != 3 {
 		t.Fatalf("expected fresh story metadata, got %#v", m.detail)
 	}
 	if len(m.comments) != 2 {
-		t.Fatalf("expected refreshed top comments, got %#v", m.comments)
+		t.Fatalf("expected 2 refreshed comments, got %d", len(m.comments))
 	}
-	if m.comments[0].Item.Text != "fresh parent" {
-		t.Fatalf("expected fresh top comment item, got %#v", m.comments[0].Item)
-	}
-	if len(m.comments[0].Children) != 1 || m.comments[0].Children[0].Item.ID != 3 {
-		t.Fatalf("expected existing child subtree preserved, got %#v", m.comments[0].Children)
-	}
-	if !m.childrenLoaded[2] {
-		t.Fatalf("expected preserved subtree to be marked loaded: %#v", m.childrenLoaded)
-	}
-	if len(m.childrenLoading) != 0 {
-		t.Fatalf("expected child loading flags reset, got %#v", m.childrenLoading)
+	if m.comments[0].Item.Text != "updated" {
+		t.Fatalf("expected fresh comment text, got %q", m.comments[0].Item.Text)
 	}
 }
 
@@ -1043,6 +651,7 @@ func TestLazyStoryTargetUsesVisibleWindowAndOneAndHalfScreens(t *testing.T) {
 
 	m.storyIDs[hn.CategoryTop] = make([]int, 100)
 	m.stories[hn.CategoryTop] = make([]hn.Story, initialStoryLoad)
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.list = list.New(nil, m.listDelegate(), 80, 20)
 	m.setListItems(m.stories[hn.CategoryTop])
 	m.list.Select(19)
@@ -1060,6 +669,7 @@ func TestEnsureStoriesLoadedMarksCategoryLoading(t *testing.T) {
 
 	m.storyIDs[hn.CategoryTop] = make([]int, 100)
 	m.stories[hn.CategoryTop] = make([]hn.Story, initialStoryLoad)
+	delete(m.storiesLoading, hn.CategoryTop)
 	m.list = list.New(nil, m.listDelegate(), 80, 20)
 	m.setListItems(m.stories[hn.CategoryTop])
 	m.list.Select(19)

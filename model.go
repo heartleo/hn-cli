@@ -31,7 +31,8 @@ func (it *Item) RelativeTime() string {
 // Story wraps an Item for use in bubbles/list.
 type Story struct {
 	Item
-	Rank int
+	Rank   int
+	Domain string
 }
 
 func (s Story) FilterValue() string { return s.Item.Title }
