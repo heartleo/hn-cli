@@ -21,6 +21,7 @@ import (
 	hn "github.com/heartleo/hn-cli"
 	"github.com/heartleo/hn-cli/internal/algolia"
 	"github.com/heartleo/hn-cli/internal/config"
+	"github.com/heartleo/hn-cli/internal/scrape"
 	"github.com/heartleo/hn-cli/internal/translate"
 )
 
@@ -154,6 +155,7 @@ type model struct {
 
 	client             *hn.Client
 	algolia            *algolia.Fetcher
+	scraper            *scrape.Scraper
 	translator         *translate.Client
 	storyIDs           map[hn.Category][]int
 	stories            map[hn.Category][]hn.Story
@@ -236,6 +238,7 @@ func newModel(cat hn.Category) model {
 		detailKeys:             newDetailKeyMap(),
 		client:                 hn.NewClient(),
 		algolia:                algolia.NewFetcher(),
+		scraper:                scrape.NewScraper(),
 		translator:             translator,
 		storyIDs:               make(map[hn.Category][]int),
 		stories:                make(map[hn.Category][]hn.Story),
@@ -396,8 +399,19 @@ func (m model) refreshVisibleStories(cat hn.Category) tea.Cmd {
 	}
 }
 
-func (m model) fetchAlgoliaThread(story hn.Item) tea.Cmd {
+// fetchThread tries the HTML scrape first (exact HN display order at every
+// nesting level) and falls back to Algolia on failure (stable API, but
+// nested replies only approximate HN order via created_at_i). The Algolia
+// path restores top-level order with ReorderByKids using story.Kids from
+// Firebase; the scrape path already receives rows in HN order so no reorder
+// is needed.
+func (m model) fetchThread(story hn.Item) tea.Cmd {
 	return func() tea.Msg {
+		if comments, err := m.scraper.Thread(context.Background(), story.ID); err == nil {
+			return topCommentsMsg{story: story, comments: comments}
+		} else {
+			slog.Debug("scrape thread failed, falling back to algolia", "story", story.ID, "err", err)
+		}
 		comments, err := m.algolia.Thread(context.Background(), story.ID)
 		if err != nil {
 			return errMsg{err}
@@ -412,6 +426,11 @@ func (m model) refreshComments(storyID int) tea.Cmd {
 		story, err := m.client.GetItemFresh(storyID)
 		if err != nil {
 			return refreshCommentsErrMsg{err: err}
+		}
+		if comments, scrapeErr := m.scraper.Thread(context.Background(), storyID); scrapeErr == nil {
+			return refreshCommentsMsg{story: *story, comments: comments}
+		} else {
+			slog.Debug("scrape refresh failed, falling back to algolia", "story", storyID, "err", scrapeErr)
 		}
 		comments, err := m.algolia.Thread(context.Background(), storyID)
 		if err != nil {
@@ -919,7 +938,7 @@ func (m *model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.listKeys.Read):
 		if item, ok := m.list.SelectedItem().(hn.Story); ok {
 			m.state = stateDetailLoading
-			return m, tea.Batch(m.spinner.Tick, m.fetchAlgoliaThread(item.Item))
+			return m, tea.Batch(m.spinner.Tick, m.fetchThread(item.Item))
 		}
 		return m, nil
 	}

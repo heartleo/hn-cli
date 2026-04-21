@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	hn "github.com/heartleo/hn-cli"
@@ -171,15 +172,24 @@ func convert(it item, depth int) *hn.Comment {
 	if it.ParentID != nil {
 		c.Item.Parent = *it.ParentID
 	}
-	kids := make([]int, 0, len(it.Children))
-	children := make([]*hn.Comment, 0, len(it.Children))
-	for _, child := range it.Children {
+	// Sort the raw Algolia children by created_at_i ASC (oldest first) before
+	// recursing. Algolia's `children` order is not documented and does not
+	// match HN's algorithmic display order; sorting by created_at_i gives a
+	// deterministic chronological read. Ties preserve the original Algolia
+	// order via stable sort.
+	rawChildren := append([]item(nil), it.Children...)
+	sort.SliceStable(rawChildren, func(i, j int) bool {
+		return rawChildren[i].CreatedAtI < rawChildren[j].CreatedAtI
+	})
+	children := make([]*hn.Comment, 0, len(rawChildren))
+	kids := make([]int, 0, len(rawChildren))
+	for _, child := range rawChildren {
 		sub := convert(child, depth+1)
 		if sub == nil {
 			continue
 		}
-		kids = append(kids, sub.Item.ID)
 		children = append(children, sub)
+		kids = append(kids, sub.Item.ID)
 	}
 	c.Item.Kids = kids
 	c.Children = children
