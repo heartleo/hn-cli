@@ -29,12 +29,6 @@ A terminal client for Hacker News.
 $ brew install heartleo/tap/hn
 ```
 
-**winget** (Windows):
-
-```powershell
-$ winget install heartleo.hn
-```
-
 **curl** (macOS / Linux):
 
 ```bash
