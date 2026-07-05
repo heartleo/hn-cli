@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config holds global CLI configuration.
@@ -81,6 +82,12 @@ func LoadTranslateConfig() TranslateConfig {
 	if tc.APIURL == "" {
 		tc.APIURL = "https://api.openai.com/v1"
 	}
+	if tc.APIKey == "" {
+		tc.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	}
+	if tc.APIKey == "" {
+		tc.APIKey = loadCodexAPIKey()
+	}
 	if tc.Model == "" {
 		tc.Model = "gpt-4o-mini"
 	}
@@ -89,4 +96,33 @@ func LoadTranslateConfig() TranslateConfig {
 	}
 
 	return tc
+}
+
+func codexAuthPath() string {
+	if dir := strings.TrimSpace(os.Getenv("CODEX_HOME")); dir != "" {
+		return filepath.Join(dir, "auth.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".codex", "auth.json")
+}
+
+func loadCodexAPIKey() string {
+	path := codexAuthPath()
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var auth struct {
+		OPENAIAPIKey *string `json:"OPENAI_API_KEY"`
+	}
+	if err := json.Unmarshal(data, &auth); err != nil || auth.OPENAIAPIKey == nil {
+		return ""
+	}
+	return strings.TrimSpace(*auth.OPENAIAPIKey)
 }

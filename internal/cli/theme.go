@@ -111,28 +111,78 @@ var themes = map[string]Theme{
 var currentTheme = themes["hn"]
 
 const themeEnvVar = "HN_THEME"
+const autoThemeName = "auto"
 
-func resolveTheme() {
-	var name string
-	if env, ok := os.LookupEnv(themeEnvVar); ok && env != "" {
-		name = env
+var currentThemeName = "hn"
+var currentThemeIsAuto bool
+
+func autoTheme(isDark bool) Theme {
+	if isDark {
+		return themes["hn"]
 	}
-	if name == "" {
-		if cfg, err := config.LoadConfig(); err == nil && cfg.Theme != "" {
-			name = cfg.Theme
-		}
+	return Theme{
+		Accent:  lipgloss.Color("#ff6600"),
+		Link:    lipgloss.Color("#b45309"),
+		Title:   lipgloss.Color("#1f2937"),
+		Success: lipgloss.Color("#15803d"),
+		Error:   lipgloss.Color("#b91c1c"),
+		Warning: lipgloss.Color("#9a3412"),
+		Info:    lipgloss.Color("#0f766e"),
+		Muted:   lipgloss.Color("#6b7280"),
+		Surface: lipgloss.Color("#fff2df"),
+		Score:   lipgloss.Color("#ff6600"),
+		Comment: lipgloss.Color("#6b7280"),
 	}
+}
+
+func setTheme(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
-		name = "hn"
+		name = autoThemeName
+	}
+	if name == autoThemeName {
+		currentThemeName = autoThemeName
+		currentThemeIsAuto = true
+		currentTheme = autoTheme(true)
+		refreshStoryDelegateStyles()
+		return true
 	}
 	if t, ok := themes[name]; ok {
+		currentThemeName = name
+		currentThemeIsAuto = false
 		currentTheme = t
+		refreshStoryDelegateStyles()
+		return true
 	}
+	return false
+}
+
+func applyAutoTheme(isDark bool) bool {
+	if !currentThemeIsAuto {
+		return false
+	}
+	currentTheme = autoTheme(isDark)
 	refreshStoryDelegateStyles()
+	return true
+}
+
+func configuredThemeName() string {
+	if env, ok := os.LookupEnv(themeEnvVar); ok && env != "" {
+		return env
+	}
+	if cfg, err := config.LoadConfig(); err == nil && cfg.Theme != "" {
+		return cfg.Theme
+	}
+	return autoThemeName
+}
+
+func resolveTheme() {
+	setTheme(configuredThemeName())
 }
 
 func themeNames() []string {
-	names := make([]string, 0, len(themes))
+	names := make([]string, 0, len(themes)+1)
+	names = append(names, autoThemeName)
 	for k := range themes {
 		names = append(names, k)
 	}
@@ -147,18 +197,13 @@ var themeCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			cfg, _ := config.LoadConfig()
-			current := cfg.Theme
-			if current == "" {
-				current = "mocha"
-			}
-			fmt.Printf("Current theme: %s\n", colorBold(current))
+			fmt.Printf("Current theme: %s\n", colorBold(configuredThemeName()))
 			fmt.Printf("Available: %s\n", strings.Join(themeNames(), ", "))
 			return nil
 		}
 
 		name := strings.ToLower(args[0])
-		if _, ok := themes[name]; !ok {
+		if _, ok := themes[name]; !ok && name != autoThemeName {
 			return fmt.Errorf("unknown theme %q, available: %s", name, strings.Join(themeNames(), ", "))
 		}
 
@@ -168,8 +213,7 @@ var themeCmd = &cobra.Command{
 			return fmt.Errorf("failed to save theme: %w", err)
 		}
 
-		currentTheme = themes[name]
-		refreshStoryDelegateStyles()
+		setTheme(name)
 		fmt.Printf("%s Theme set to %s\n", colorGreen(symbolSuccess), colorBold(name))
 		fmt.Printf("%s Saved to: %s\n", colorFaint(symbolInfo), tildePath(config.ConfigPath()))
 		return nil

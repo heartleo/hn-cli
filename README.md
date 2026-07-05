@@ -18,7 +18,7 @@ A terminal client for Hacker News.
 - 💬 **Comment threads** — navigate with `j/k`, fold/unfold, lazy-load reply trees
 - 🌐 **Translation** — translate a title with `t`, all visible titles with `T`, or a selected comment
 - 🔄 **Soft refresh** — refresh stories or comments without restarting
-- 🎨 **Themes** — hn, mocha, dracula, tokyo, nord, gruvbox
+- 🎨 **Themes** — auto, hn, mocha, dracula, tokyo, nord, gruvbox
 - ⚡ **Progressive loading** — visible range loads first, more fetched as you scroll
 
 ## Install
@@ -119,10 +119,11 @@ t   translate selected comment (in comment view)
 
 ```bash
 $ hn theme          # show current
+$ hn theme auto     # follow terminal background
 $ hn theme nord     # set globally
 ```
 
-Available: `hn` · `mocha` · `dracula` · `tokyo` · `nord` · `gruvbox`
+Available: `auto` · `hn` · `mocha` · `dracula` · `tokyo` · `nord` · `gruvbox`
 
 ## Keys
 
@@ -170,6 +171,10 @@ Available: `hn` · `mocha` · `dracula` · `tokyo` · `nord` · `gruvbox`
 | `HN_TRANSLATE_MODEL`   | `gpt-4o-mini`               | Model name      |
 | `HN_TRANSLATE_LANG`    | `Chinese`                   | Target language |
 
+If `HN_TRANSLATE_API_KEY` and the config file do not provide a key, `hn` also
+checks `OPENAI_API_KEY`, then `OPENAI_API_KEY` in `~/.codex/auth.json` or
+`$CODEX_HOME/auth.json`. ChatGPT OAuth tokens in Codex auth files are ignored.
+
 Example `.env`:
 
 ```bash
@@ -187,7 +192,7 @@ Example `~/.config/hn/config.json`:
 
 ```json
 {
-  "theme": "mocha",
+  "theme": "auto",
   "translate": {
     "api_url": "https://api.openai.com/v1",
     "api_key": "sk-...",

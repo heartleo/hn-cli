@@ -255,7 +255,27 @@ func newModel(cat hn.Category) model {
 }
 
 func (m model) Init() tea.Cmd {
+	if currentThemeIsAuto {
+		return tea.Batch(m.spinner.Tick, func() tea.Msg {
+			return tea.RequestBackgroundColor()
+		})
+	}
 	return m.spinner.Tick
+}
+
+func (m *model) applyComponentThemeStyles() {
+	m.spinner.Style = lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	m.list.Styles.NoItems = lipgloss.NewStyle().Foreground(currentTheme.Muted).Padding(1, 2)
+
+	filterStyles := textinput.DefaultStyles(true)
+	filterStyles.Focused.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	filterStyles.Blurred.Prompt = lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	m.list.FilterInput.SetStyles(filterStyles)
+	m.list.SetDelegate(m.listDelegate())
+
+	m.help.Styles.ShortKey = lipgloss.NewStyle().Foreground(currentTheme.Accent)
+	m.help.Styles.ShortDesc = lipgloss.NewStyle().Foreground(currentTheme.Muted)
+	m.help.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(currentTheme.Surface)
 }
 
 func (m *model) showToast(message string) tea.Cmd {
@@ -648,6 +668,14 @@ func (m model) listContentHeight() int {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		if applyAutoTheme(msg.IsDark()) {
+			m.applyComponentThemeStyles()
+			if m.state == stateDetail {
+				m.rebuildCommentView()
+			}
+		}
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
