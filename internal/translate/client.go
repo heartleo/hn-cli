@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -15,23 +16,64 @@ import (
 
 // Client translates text through an OpenAI-compatible chat completions API.
 type Client struct {
-	APIURL   string
-	APIKey   string
-	Model    string
-	Language string
+	APIURL           string
+	APIKey           string
+	Model            string
+	Language         string
+	WireAPI          string
+	ReasoningEffort  string
+	ServiceTier      string
+	ChatGPTAccountID string
 
 	http *http.Client
 }
 
+// ClientOption configures a translation client.
+type ClientOption func(*Client)
+
+// WithReasoningEffort sets the reasoning effort request parameter when non-empty.
+func WithReasoningEffort(effort string) ClientOption {
+	return func(c *Client) {
+		c.ReasoningEffort = strings.TrimSpace(effort)
+	}
+}
+
+// WithServiceTier sets the service tier request parameter when non-empty.
+func WithServiceTier(tier string) ClientOption {
+	return func(c *Client) {
+		c.ServiceTier = strings.TrimSpace(tier)
+	}
+}
+
+// WithWireAPI chooses the request wire format when non-empty.
+func WithWireAPI(wireAPI string) ClientOption {
+	return func(c *Client) {
+		c.WireAPI = strings.TrimSpace(wireAPI)
+	}
+}
+
+// WithChatGPTAccountID sets the Codex ChatGPT account header when non-empty.
+func WithChatGPTAccountID(accountID string) ClientOption {
+	return func(c *Client) {
+		c.ChatGPTAccountID = strings.TrimSpace(accountID)
+	}
+}
+
 // NewClient creates a translation client from config values.
-func NewClient(apiURL, apiKey, model, language string) *Client {
-	return &Client{
+func NewClient(apiURL, apiKey, model, language string, opts ...ClientOption) *Client {
+	c := &Client{
 		APIURL:   strings.TrimRight(apiURL, "/"),
 		APIKey:   apiKey,
 		Model:    model,
 		Language: language,
 		http:     &http.Client{Timeout: 30 * time.Second},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
+	return c
 }
 
 // Configured reports whether the client has enough settings to call the API.
@@ -125,6 +167,16 @@ func (c *Client) TranslateBatch(ctx context.Context, titles map[int]string) (map
 }
 
 func (c *Client) complete(ctx context.Context, reqBody chatCompletionRequest) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(c.WireAPI), "codex_responses") {
+		return c.completeCodexResponses(ctx, reqBody)
+	}
+	return c.completeChatCompletions(ctx, reqBody)
+}
+
+func (c *Client) completeChatCompletions(ctx context.Context, reqBody chatCompletionRequest) (string, error) {
+	reqBody.ReasoningEffort = strings.TrimSpace(c.ReasoningEffort)
+	reqBody.ServiceTier = strings.TrimSpace(c.ServiceTier)
+
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
@@ -144,7 +196,7 @@ func (c *Client) complete(ctx context.Context, reqBody chatCompletionRequest) (s
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("translate request failed: %s", resp.Status)
+		return "", translateHTTPError(resp)
 	}
 
 	var out chatCompletionResponse
@@ -273,8 +325,10 @@ func stripJSONFence(s string) string {
 }
 
 type chatCompletionRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
+	Model           string        `json:"model"`
+	Messages        []chatMessage `json:"messages"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	ServiceTier     string        `json:"service_tier,omitempty"`
 }
 
 type chatMessage struct {
@@ -291,4 +345,32 @@ type chatCompletionResponse struct {
 type batchTitle struct {
 	ID    int    `json:"id"`
 	Title string `json:"title"`
+}
+
+func translateHTTPError(resp *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	message := strings.TrimSpace(string(body))
+	if message == "" {
+		return fmt.Errorf("translate request failed: %s", resp.Status)
+	}
+	if extracted := extractHTTPErrorMessage(message); extracted != "" {
+		message = extracted
+	}
+	return fmt.Errorf("translate request failed: %s: %s", resp.Status, message)
+}
+
+func extractHTTPErrorMessage(body string) string {
+	var payload struct {
+		Detail string `json:"detail"`
+		Error  struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(payload.Error.Message) != "" {
+		return strings.TrimSpace(payload.Error.Message)
+	}
+	return strings.TrimSpace(payload.Detail)
 }

@@ -107,31 +107,37 @@ type errMsg struct{ err error }
 type translateMsg struct {
 	itemID     int
 	translated string
+	latency    time.Duration
 }
 
 type translateErrMsg struct {
-	itemID int
-	err    error
+	itemID  int
+	err     error
+	latency time.Duration
 }
 
 type translateBatchMsg struct {
 	itemIDs      []int
 	translations map[int]string
+	latency      time.Duration
 }
 
 type translateBatchErrMsg struct {
 	itemIDs []int
 	err     error
+	latency time.Duration
 }
 
 type translateCommentMsg struct {
 	itemID     int
 	translated string
+	latency    time.Duration
 }
 
 type translateCommentErrMsg struct {
-	itemID int
-	err    error
+	itemID  int
+	err     error
+	latency time.Duration
 }
 
 type toastTimeoutMsg struct {
@@ -186,6 +192,10 @@ type model struct {
 	status  string
 	toast   string
 	toastID int
+
+	translationSetupHint    string
+	translationLatencyTotal time.Duration
+	translationLatencyCount int
 }
 
 func newModel(cat hn.Category) model {
@@ -198,6 +208,10 @@ func newModel(cat hn.Category) model {
 		translateConfig.APIKey,
 		translateConfig.Model,
 		translateConfig.Language,
+		translate.WithWireAPI(translateConfig.WireAPI),
+		translate.WithReasoningEffort(translateConfig.ReasoningEffort),
+		translate.WithServiceTier(translateConfig.ServiceTier),
+		translate.WithChatGPTAccountID(translateConfig.ChatGPTAccountID),
 	)
 
 	translations := make(map[int]string)
@@ -240,6 +254,7 @@ func newModel(cat hn.Category) model {
 		algolia:                algolia.NewFetcher(),
 		scraper:                scrape.NewScraper(),
 		translator:             translator,
+		translationSetupHint:   translateConfig.SetupHint,
 		storyIDs:               make(map[hn.Category][]int),
 		stories:                make(map[hn.Category][]hn.Story),
 		storiesLoading:         make(map[hn.Category]bool),
@@ -283,6 +298,31 @@ func (m *model) showToast(message string) tea.Cmd {
 	return tea.Tick(toastDuration, func(time.Time) tea.Msg {
 		return toastTimeoutMsg{id: id}
 	})
+}
+
+func (m *model) showTranslationUnavailableToast() tea.Cmd {
+	message := strings.TrimSpace(m.translationSetupHint)
+	if message == "" {
+		message = translationNotConfiguredMessage
+	}
+	return m.showToast(message)
+}
+
+func (m *model) recordTranslationLatency(latency time.Duration) string {
+	if latency < 0 {
+		latency = 0
+	}
+	m.translationLatencyTotal += latency
+	m.translationLatencyCount++
+	avg := m.translationLatencyTotal / time.Duration(m.translationLatencyCount)
+	return fmt.Sprintf("%s (avg %s)", formatLatency(latency), formatLatency(avg))
+}
+
+func formatLatency(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
 func (m model) fetchStories(cat hn.Category) tea.Cmd {
@@ -475,7 +515,7 @@ func (m *model) translateSelectedTitle() tea.Cmd {
 		return nil
 	}
 	if !m.translator.Configured() {
-		return m.showToast(translationNotConfiguredMessage)
+		return m.showTranslationUnavailableToast()
 	}
 
 	m.status = ""
@@ -483,11 +523,13 @@ func (m *model) translateSelectedTitle() tea.Cmd {
 	title := story.Item.Title
 	translator := m.translator
 	translateCmd := func() tea.Msg {
+		start := time.Now()
 		translated, err := translator.Translate(context.Background(), title)
+		latency := time.Since(start)
 		if err != nil {
-			return translateErrMsg{itemID: id, err: err}
+			return translateErrMsg{itemID: id, err: err, latency: latency}
 		}
-		return translateMsg{itemID: id, translated: translated}
+		return translateMsg{itemID: id, translated: translated, latency: latency}
 	}
 	return tea.Batch(m.spinner.Tick, translateCmd)
 }
@@ -499,7 +541,7 @@ func (m *model) translateAllTitles() tea.Cmd {
 		return nil
 	}
 	if !m.translator.Configured() {
-		return m.showToast(translationNotConfiguredMessage)
+		return m.showTranslationUnavailableToast()
 	}
 
 	allTranslated := true
@@ -549,11 +591,13 @@ func (m *model) translateAllTitles() tea.Cmd {
 
 	translator := m.translator
 	translateCmd := func() tea.Msg {
+		start := time.Now()
 		translations, err := translator.TranslateBatch(context.Background(), titles)
+		latency := time.Since(start)
 		if err != nil {
-			return translateBatchErrMsg{itemIDs: itemIDs, err: err}
+			return translateBatchErrMsg{itemIDs: itemIDs, err: err, latency: latency}
 		}
-		return translateBatchMsg{itemIDs: itemIDs, translations: translations}
+		return translateBatchMsg{itemIDs: itemIDs, translations: translations, latency: latency}
 	}
 	return tea.Batch(m.spinner.Tick, translateCmd)
 }
@@ -575,7 +619,7 @@ func (m *model) translateSelectedComment() tea.Cmd {
 		return nil
 	}
 	if !m.translator.Configured() {
-		return m.showToast(translationNotConfiguredMessage)
+		return m.showTranslationUnavailableToast()
 	}
 
 	markdown := strings.TrimSpace(m.commentMarkdown(comment))
@@ -589,11 +633,13 @@ func (m *model) translateSelectedComment() tea.Cmd {
 	m.rebuildCommentView()
 	translator := m.translator
 	translateCmd := func() tea.Msg {
+		start := time.Now()
 		translated, err := translator.TranslateMarkdown(context.Background(), markdown)
+		latency := time.Since(start)
 		if err != nil {
-			return translateCommentErrMsg{itemID: id, err: err}
+			return translateCommentErrMsg{itemID: id, err: err, latency: latency}
 		}
-		return translateCommentMsg{itemID: id, translated: translated}
+		return translateCommentMsg{itemID: id, translated: translated, latency: latency}
 	}
 	return tea.Batch(m.spinner.Tick, translateCmd)
 }
@@ -811,12 +857,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.translating, msg.itemID)
 		m.translations[msg.itemID] = msg.translated
 		m.showTranslation[msg.itemID] = true
-		m.status = ""
+		m.status = "translated title in " + m.recordTranslationLatency(msg.latency)
 		return m, nil
 
 	case translateErrMsg:
 		delete(m.translating, msg.itemID)
-		m.status = "translation failed: " + msg.err.Error()
+		latency := m.recordTranslationLatency(msg.latency)
+		if latency != "" {
+			m.status = "translation failed after " + latency + ": " + msg.err.Error()
+		} else {
+			m.status = "translation failed: " + msg.err.Error()
+		}
 		return m, nil
 
 	case translateBatchMsg:
@@ -827,14 +878,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.translations[id] = translated
 			m.showTranslation[id] = true
 		}
-		m.status = ""
+		m.status = fmt.Sprintf("translated %d titles in %s", len(msg.translations), m.recordTranslationLatency(msg.latency))
 		return m, nil
 
 	case translateBatchErrMsg:
 		for _, id := range msg.itemIDs {
 			delete(m.translating, id)
 		}
-		m.status = "translation failed: " + msg.err.Error()
+		latency := m.recordTranslationLatency(msg.latency)
+		if latency != "" {
+			m.status = "translation failed after " + latency + ": " + msg.err.Error()
+		} else {
+			m.status = "translation failed: " + msg.err.Error()
+		}
 		return m, nil
 
 	case translateCommentMsg:
@@ -847,13 +903,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.commentTranslations[msg.itemID] = msg.translated
 		m.showCommentTranslation[msg.itemID] = true
-		m.status = ""
+		m.status = "translated comment in " + m.recordTranslationLatency(msg.latency)
 		m.rebuildCommentView()
 		return m, nil
 
 	case translateCommentErrMsg:
 		delete(m.commentTranslating, msg.itemID)
-		m.status = "translation failed: " + msg.err.Error()
+		latency := m.recordTranslationLatency(msg.latency)
+		if latency != "" {
+			m.status = "translation failed after " + latency + ": " + msg.err.Error()
+		} else {
+			m.status = "translation failed: " + msg.err.Error()
+		}
 		m.rebuildCommentView()
 		return m, nil
 
@@ -1941,7 +2002,7 @@ func (m model) renderToast() string {
 	}
 
 	title := lipgloss.NewStyle().Foreground(currentTheme.Warning).Bold(true).Render("Translation unavailable")
-	message := lipgloss.NewStyle().Foreground(currentTheme.Muted).Width(maxWidth).Render(m.toast)
+	message := lipgloss.NewStyle().Foreground(currentTheme.Title).Width(maxWidth).Render(m.toast)
 	body := lipgloss.JoinVertical(lipgloss.Left, title, message)
 
 	return lipgloss.NewStyle().

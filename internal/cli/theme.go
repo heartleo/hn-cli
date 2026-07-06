@@ -115,6 +115,7 @@ const autoThemeName = "auto"
 
 var currentThemeName = "hn"
 var currentThemeIsAuto bool
+var currentThemeUsesLightBackground bool
 
 func autoTheme(isDark bool) Theme {
 	if isDark {
@@ -147,6 +148,7 @@ func setTheme(name string) bool {
 	if name == autoThemeName {
 		currentThemeName = autoThemeName
 		currentThemeIsAuto = true
+		currentThemeUsesLightBackground = false
 		currentTheme = autoTheme(true)
 		refreshStoryDelegateStyles()
 		return true
@@ -154,6 +156,7 @@ func setTheme(name string) bool {
 	if t, ok := themes[name]; ok {
 		currentThemeName = name
 		currentThemeIsAuto = false
+		currentThemeUsesLightBackground = false
 		currentTheme = t
 		refreshStoryDelegateStyles()
 		return true
@@ -165,9 +168,17 @@ func applyAutoTheme(isDark bool) bool {
 	if !currentThemeIsAuto {
 		return false
 	}
+	currentThemeUsesLightBackground = !isDark
 	currentTheme = autoTheme(isDark)
 	refreshStoryDelegateStyles()
 	return true
+}
+
+func markdownStyleName() string {
+	if currentThemeUsesLightBackground {
+		return "light"
+	}
+	return "dark"
 }
 
 func configuredThemeName() string {

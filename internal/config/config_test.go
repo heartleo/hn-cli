@@ -16,6 +16,9 @@ func isolateConfigEnv(t *testing.T) string {
 	t.Setenv("HN_TRANSLATE_API_KEY", "")
 	t.Setenv("HN_TRANSLATE_MODEL", "")
 	t.Setenv("HN_TRANSLATE_LANG", "")
+	t.Setenv("HN_TRANSLATE_REASONING_EFFORT", "")
+	t.Setenv("HN_TRANSLATE_SERVICE_TIER", "")
+	t.Setenv("HN_TRANSLATE_WIRE_API", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	return root
 }
@@ -81,19 +84,64 @@ func TestLoadTranslateConfigUsesCodexAPIKeyFallback(t *testing.T) {
 	if cfg.APIKey != "sk-codex" {
 		t.Fatalf("expected Codex OPENAI_API_KEY fallback, got %q", cfg.APIKey)
 	}
+	if cfg.AuthSource != translateAuthSourceCodexAPIKey {
+		t.Fatalf("expected Codex API key auth source, got %q", cfg.AuthSource)
+	}
 }
 
-func TestLoadTranslateConfigIgnoresCodexChatGPTTokens(t *testing.T) {
+func TestLoadTranslateConfigUsesCodexChatGPTAccessToken(t *testing.T) {
 	root := isolateConfigEnv(t)
 	writeCodexAuth(t, root, `{
 		"auth_mode":"chatgpt",
 		"OPENAI_API_KEY":null,
-		"tokens":{"access_token":"not-an-api-key","refresh_token":"not-an-api-key"}
+		"tokens":{"access_token":" oauth-access-token ","refresh_token":"refresh-token","account_id":" account-123 "}
+	}`)
+
+	cfg := LoadTranslateConfig()
+
+	if cfg.APIKey != "oauth-access-token" {
+		t.Fatalf("expected ChatGPT OAuth access token fallback, got %q", cfg.APIKey)
+	}
+	if cfg.AuthSource != translateAuthSourceCodexOAuth {
+		t.Fatalf("expected Codex OAuth auth source, got %q", cfg.AuthSource)
+	}
+	if cfg.APIURL != defaultCodexOAuthAPIURL {
+		t.Fatalf("expected Codex OAuth API URL %q, got %q", defaultCodexOAuthAPIURL, cfg.APIURL)
+	}
+	if cfg.WireAPI != translateWireAPICodexResponses {
+		t.Fatalf("expected Codex OAuth wire API %q, got %q", translateWireAPICodexResponses, cfg.WireAPI)
+	}
+	if cfg.ChatGPTAccountID != "account-123" {
+		t.Fatalf("expected ChatGPT account id, got %q", cfg.ChatGPTAccountID)
+	}
+	if cfg.Model != defaultCodexOAuthTranslateModel {
+		t.Fatalf("expected Codex OAuth default model %q, got %q", defaultCodexOAuthTranslateModel, cfg.Model)
+	}
+	if cfg.ReasoningEffort != defaultCodexOAuthReasoningEffort {
+		t.Fatalf("expected Codex OAuth reasoning effort %q, got %q", defaultCodexOAuthReasoningEffort, cfg.ReasoningEffort)
+	}
+	if cfg.ServiceTier != defaultCodexOAuthServiceTier {
+		t.Fatalf("expected Codex OAuth service tier %q, got %q", defaultCodexOAuthServiceTier, cfg.ServiceTier)
+	}
+	if cfg.SetupHint != "" {
+		t.Fatalf("expected no setup hint when OAuth token is usable, got %q", cfg.SetupHint)
+	}
+}
+
+func TestLoadTranslateConfigHintsWhenCodexChatGPTTokenMissing(t *testing.T) {
+	root := isolateConfigEnv(t)
+	writeCodexAuth(t, root, `{
+		"auth_mode":"chatgpt",
+		"OPENAI_API_KEY":null,
+		"tokens":{"refresh_token":"refresh-token"}
 	}`)
 
 	cfg := LoadTranslateConfig()
 
 	if cfg.APIKey != "" {
-		t.Fatalf("expected ChatGPT OAuth tokens to be ignored, got %q", cfg.APIKey)
+		t.Fatalf("expected missing ChatGPT access token to leave API key empty, got %q", cfg.APIKey)
+	}
+	if cfg.SetupHint == "" {
+		t.Fatal("expected setup hint for missing ChatGPT access token")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -210,6 +211,42 @@ func TestTranslateSelectedTitleWithoutConfigShowsToast(t *testing.T) {
 	}
 }
 
+func TestTranslateSelectedTitleShowsSetupHint(t *testing.T) {
+	m := newModel(hn.CategoryTop)
+	m.translator = translate.NewClient("", "", "", "")
+	m.translationSetupHint = "Codex auth.json has no usable access token."
+	m.list = list.New(nil, m.listDelegate(), 0, 0)
+	m.setListItems([]hn.Story{{Item: hn.Item{ID: 1, Title: "Hello"}, Rank: 1}})
+
+	cmd := m.translateSelectedTitle()
+	if cmd == nil {
+		t.Fatal("expected toast timeout command")
+	}
+	if !strings.Contains(m.toast, "no usable access token") {
+		t.Fatalf("expected toast to show setup hint, got %q", m.toast)
+	}
+	if strings.Contains(m.toast, "HN_TRANSLATE_API_KEY") {
+		t.Fatalf("expected specific auth hint to replace generic setup message, got %q", m.toast)
+	}
+}
+
+func TestRecordTranslationLatencyTracksAverage(t *testing.T) {
+	var m model
+
+	first := m.recordTranslationLatency(1200 * time.Millisecond)
+	second := m.recordTranslationLatency(800 * time.Millisecond)
+
+	if first != "1.2s (avg 1.2s)" {
+		t.Fatalf("unexpected first latency summary: %q", first)
+	}
+	if second != "800ms (avg 1.0s)" {
+		t.Fatalf("unexpected second latency summary: %q", second)
+	}
+	if m.translationLatencyCount != 2 {
+		t.Fatalf("expected 2 latency samples, got %d", m.translationLatencyCount)
+	}
+}
+
 func TestTranslateAllTitlesUsesSingleBatchRequest(t *testing.T) {
 	calls := 0
 	var expectedIDs []int
@@ -308,6 +345,9 @@ func TestTranslateAllTitlesUsesSingleBatchRequest(t *testing.T) {
 	}
 	if m.translations[6] != "" {
 		t.Fatalf("expected off-screen title to remain untranslated, got %#v", m.translations)
+	}
+	if !strings.Contains(m.status, "avg") {
+		t.Fatalf("expected translation latency average in status, got %q", m.status)
 	}
 }
 

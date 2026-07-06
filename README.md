@@ -164,16 +164,23 @@ Available: `auto` · `hn` · `mocha` · `dracula` · `tokyo` · `nord` · `gruvb
 
 ### Translation
 
-| Variable               | Default                     | Description     |
-| ---------------------- | --------------------------- | --------------- |
-| `HN_TRANSLATE_API_URL` | `https://api.openai.com/v1` | API base URL    |
-| `HN_TRANSLATE_API_KEY` | —                           | API key         |
-| `HN_TRANSLATE_MODEL`   | `gpt-4o-mini`               | Model name      |
-| `HN_TRANSLATE_LANG`    | `Chinese`                   | Target language |
+| Variable                        | Default                     | Description     |
+| ------------------------------- | --------------------------- | --------------- |
+| `HN_TRANSLATE_API_URL`          | `https://api.openai.com/v1` | API base URL    |
+| `HN_TRANSLATE_API_KEY`          | —                           | API key         |
+| `HN_TRANSLATE_MODEL`            | `gpt-4o-mini`               | Model name      |
+| `HN_TRANSLATE_LANG`             | `Chinese`                   | Target language |
+| `HN_TRANSLATE_REASONING_EFFORT` | —                           | Reasoning effort |
+| `HN_TRANSLATE_SERVICE_TIER`     | —                           | Service tier    |
+| `HN_TRANSLATE_WIRE_API`         | `chat_completions`          | `chat_completions` or `codex_responses` |
 
 If `HN_TRANSLATE_API_KEY` and the config file do not provide a key, `hn` also
-checks `OPENAI_API_KEY`, then `OPENAI_API_KEY` in `~/.codex/auth.json` or
-`$CODEX_HOME/auth.json`. ChatGPT OAuth tokens in Codex auth files are ignored.
+checks `OPENAI_API_KEY`, then Codex auth in `~/.codex/auth.json` or
+`$CODEX_HOME/auth.json`. Codex ChatGPT OAuth access tokens are used against
+`https://chatgpt.com/backend-api/codex/responses` with Codex-compatible
+streaming headers. When this fallback is used, the default model is `gpt-5.5`
+with `reasoning_effort=none`; fast mode maps to OpenAI priority processing via
+`service_tier=priority`.
 
 Example `.env`:
 

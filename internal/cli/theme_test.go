@@ -16,11 +16,13 @@ func preserveThemeState(t *testing.T) {
 	theme := currentTheme
 	name := currentThemeName
 	isAuto := currentThemeIsAuto
+	usesLightBackground := currentThemeUsesLightBackground
 	styles := storyStyles
 	t.Cleanup(func() {
 		currentTheme = theme
 		currentThemeName = name
 		currentThemeIsAuto = isAuto
+		currentThemeUsesLightBackground = usesLightBackground
 		storyStyles = styles
 	})
 }
@@ -115,6 +117,9 @@ func TestAutoThemeAppliesTerminalBackground(t *testing.T) {
 	if !sameColor(currentTheme.Title, autoTheme(false).Title) {
 		t.Fatal("expected current theme to match light auto palette")
 	}
+	if got := markdownStyleName(); got != "light" {
+		t.Fatalf("expected light terminal background to use light markdown style, got %q", got)
+	}
 }
 
 func TestExplicitThemeIgnoresTerminalBackground(t *testing.T) {
@@ -129,6 +134,9 @@ func TestExplicitThemeIgnoresTerminalBackground(t *testing.T) {
 	}
 	if !sameColor(currentTheme.Title, title) {
 		t.Fatal("expected explicit theme colors to remain unchanged")
+	}
+	if got := markdownStyleName(); got != "dark" {
+		t.Fatalf("expected explicit theme to keep dark markdown style, got %q", got)
 	}
 }
 
