@@ -21,7 +21,10 @@ const (
 	minMaxConcurrent     = 1
 	maxMaxConcurrent     = 256
 	maxConcurrentEnvVar  = "HN_MAX_CONCURRENT"
+	itemFetchAttempts    = 3
 )
+
+var itemFetchRetryBaseDelay = 100 * time.Millisecond
 
 // Client provides access to the Hacker News APIs.
 type Client struct {
@@ -139,7 +142,18 @@ func (c *Client) GetItem(id int) (*Item, error) {
 func (c *Client) GetItemFresh(id int) (*Item, error) {
 	reqURL := fmt.Sprintf("%s/item/%d.json", firebaseBaseURL, id)
 	t := time.Now()
-	resp, err := c.http.Get(reqURL)
+	var resp *http.Response
+	var err error
+	for attempt := 1; attempt <= itemFetchAttempts; attempt++ {
+		resp, err = c.http.Get(reqURL)
+		if err == nil {
+			break
+		}
+		if attempt < itemFetchAttempts {
+			slog.Debug("GetItemFresh retry", "id", id, "attempt", attempt, "err", err)
+			time.Sleep(time.Duration(attempt) * itemFetchRetryBaseDelay)
+		}
+	}
 	elapsed := time.Since(t)
 	if err != nil {
 		slog.Debug("GetItemFresh error", "id", id, "elapsed", elapsed, "err", err)
