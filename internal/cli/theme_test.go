@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	stdcolor "image/color"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -46,10 +48,47 @@ func TestResolveThemeDefaultsToAuto(t *testing.T) {
 
 func TestConfiguredThemeNameUsesEnvironmentOverride(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv(themeEnvVar, "nord")
+	t.Setenv(themeEnvVar, " Nord ")
 
 	if got := configuredThemeName(); got != "nord" {
 		t.Fatalf("expected env theme override, got %q", got)
+	}
+}
+
+func TestResolveThemeFallsBackToAutoForInvalidConfiguredTheme(t *testing.T) {
+	preserveThemeState(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(themeEnvVar, "missing-theme")
+
+	resolveTheme()
+
+	if currentThemeName != autoThemeName {
+		t.Fatalf("expected invalid configured theme to fall back to %q, got %q", autoThemeName, currentThemeName)
+	}
+	if !currentThemeIsAuto {
+		t.Fatal("expected invalid configured theme fallback to use terminal auto detection")
+	}
+}
+
+func TestThemeCommandShowsResolvedCurrentTheme(t *testing.T) {
+	preserveThemeState(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(themeEnvVar, "missing-theme")
+	resolveTheme()
+
+	var out bytes.Buffer
+	themeCmd.SetOut(&out)
+	t.Cleanup(func() { themeCmd.SetOut(nil) })
+
+	if err := themeCmd.RunE(themeCmd, nil); err != nil {
+		t.Fatalf("theme command returned error: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Current theme:") || !strings.Contains(got, autoThemeName) {
+		t.Fatalf("expected resolved current theme in output, got %q", got)
+	}
+	if strings.Contains(got, "missing-theme") {
+		t.Fatalf("expected raw invalid configured theme to be hidden, got %q", got)
 	}
 }
 

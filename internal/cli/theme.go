@@ -135,8 +135,12 @@ func autoTheme(isDark bool) Theme {
 	}
 }
 
+func normalizeThemeName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
 func setTheme(name string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
+	name = normalizeThemeName(name)
 	if name == "" {
 		name = autoThemeName
 	}
@@ -168,16 +172,18 @@ func applyAutoTheme(isDark bool) bool {
 
 func configuredThemeName() string {
 	if env, ok := os.LookupEnv(themeEnvVar); ok && env != "" {
-		return env
+		return normalizeThemeName(env)
 	}
 	if cfg, err := config.LoadConfig(); err == nil && cfg.Theme != "" {
-		return cfg.Theme
+		return normalizeThemeName(cfg.Theme)
 	}
 	return autoThemeName
 }
 
 func resolveTheme() {
-	setTheme(configuredThemeName())
+	if !setTheme(configuredThemeName()) {
+		setTheme(autoThemeName)
+	}
 }
 
 func themeNames() []string {
@@ -197,12 +203,12 @@ var themeCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			fmt.Printf("Current theme: %s\n", colorBold(configuredThemeName()))
-			fmt.Printf("Available: %s\n", strings.Join(themeNames(), ", "))
+			fmt.Fprintf(cmd.OutOrStdout(), "Current theme: %s\n", colorBold(currentThemeName))
+			fmt.Fprintf(cmd.OutOrStdout(), "Available: %s\n", strings.Join(themeNames(), ", "))
 			return nil
 		}
 
-		name := strings.ToLower(args[0])
+		name := normalizeThemeName(args[0])
 		if _, ok := themes[name]; !ok && name != autoThemeName {
 			return fmt.Errorf("unknown theme %q, available: %s", name, strings.Join(themeNames(), ", "))
 		}
@@ -214,8 +220,8 @@ var themeCmd = &cobra.Command{
 		}
 
 		setTheme(name)
-		fmt.Printf("%s Theme set to %s\n", colorGreen(symbolSuccess), colorBold(name))
-		fmt.Printf("%s Saved to: %s\n", colorFaint(symbolInfo), tildePath(config.ConfigPath()))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Theme set to %s\n", colorGreen(symbolSuccess), colorBold(name))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s Saved to: %s\n", colorFaint(symbolInfo), tildePath(config.ConfigPath()))
 		return nil
 	},
 }

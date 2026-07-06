@@ -199,7 +199,7 @@ func TestTranslateSelectedTitleWithoutConfigShowsToast(t *testing.T) {
 	if m.status != "" {
 		t.Fatalf("expected missing config to avoid persistent status, got %q", m.status)
 	}
-	if !strings.Contains(m.toast, "HN_TRANSLATE_API_KEY") {
+	if !strings.Contains(m.toast, "HN_TRANSLATE_API_KEY") || !strings.Contains(m.toast, "OPENAI_API_KEY") {
 		t.Fatalf("expected toast message for missing translation config, got %q", m.toast)
 	}
 

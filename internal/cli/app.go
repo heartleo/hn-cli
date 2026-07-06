@@ -52,7 +52,7 @@ const listBottomGap = 3
 const listProgressBarHeight = 1
 const toastDuration = 3 * time.Second
 
-const translationNotConfiguredMessage = "Translation disabled. Set HN_TRANSLATE_API_KEY to enable it."
+const translationNotConfiguredMessage = "Translation disabled. Set HN_TRANSLATE_API_KEY or OPENAI_API_KEY to enable it."
 
 // Messages
 type storiesMsg struct {
@@ -256,9 +256,7 @@ func newModel(cat hn.Category) model {
 
 func (m model) Init() tea.Cmd {
 	if currentThemeIsAuto {
-		return tea.Batch(m.spinner.Tick, func() tea.Msg {
-			return tea.RequestBackgroundColor()
-		})
+		return tea.Batch(m.spinner.Tick, tea.RequestBackgroundColor)
 	}
 	return m.spinner.Tick
 }
