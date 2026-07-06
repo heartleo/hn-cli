@@ -1,0 +1,41 @@
+name: PR Policy
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  respond:
+    # Skip PRs opened by the maintainer
+    if: github.actor != github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Thank you for taking the time to contribute! 💛",
+              "",
+              "This project is maintained in my spare time, and I currently do not have enough capacity to properly review external pull requests. It's not that your code isn't wanted — reviewing, testing, and maintaining external changes responsibly takes more time than I can commit to right now.",
+              "",
+              "The best way to get a change into `hn` is to [open an issue](https://github.com/heartleo/hn-cli/issues/new) describing the problem you're trying to solve — I read every one. See [CONTRIBUTING.md](https://github.com/heartleo/hn-cli/blob/main/CONTRIBUTING.md) for details.",
+              "",
+              "I'm closing this PR for now, but the linked branch remains available as a reference. Thank you for your understanding! 🧡",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              state: "closed",
+            });
