@@ -405,7 +405,7 @@ func TestPrefetchTabsMarksNonCurrentCategoriesLoading(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	m.state = stateList
 	m.storyIDs[hn.CategoryTop] = make([]int, 100)
-	m.stories[hn.CategoryTop] = make([]hn.Story, initialStoryLoad)
+	m.stories[hn.CategoryTop] = make([]hn.Story, 60)
 	m.setListItems(m.stories[hn.CategoryTop])
 
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
@@ -644,7 +644,7 @@ func TestScrollToCommentKeepsPreviousCommentNearTop(t *testing.T) {
 	}
 }
 
-func TestLazyStoryTargetUsesVisibleWindowAndOneAndHalfScreens(t *testing.T) {
+func TestLazyStoryTargetLoadsNextBatchNearLoadedTail(t *testing.T) {
 	m := newModel(hn.CategoryTop)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
 	m = updated.(model)
@@ -657,8 +657,30 @@ func TestLazyStoryTargetUsesVisibleWindowAndOneAndHalfScreens(t *testing.T) {
 	m.list.Select(19)
 	m.scrollToStory()
 
-	if got := m.lazyStoryTarget(); got != 23 {
-		t.Fatalf("expected target 23, got %d", got)
+	want := initialStoryLoad + m.storyFetchBatchSize()
+	if got := m.lazyStoryTarget(); got != want {
+		t.Fatalf("expected target %d, got %d", want, got)
+	}
+}
+
+func TestLazyStoryTargetSkipsLoadWhileRunwayRemains(t *testing.T) {
+	m := newModel(hn.CategoryTop)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 25})
+	m = updated.(model)
+
+	m.storyIDs[hn.CategoryTop] = make([]int, 100)
+	m.stories[hn.CategoryTop] = make([]hn.Story, 60)
+	delete(m.storiesLoading, hn.CategoryTop)
+	m.list = list.New(nil, m.listDelegate(), 80, 20)
+	m.setListItems(m.stories[hn.CategoryTop])
+	m.list.Select(0)
+	m.scrollToStory()
+
+	if got := m.lazyStoryTarget(); got != len(m.stories[hn.CategoryTop]) {
+		t.Fatalf("expected loaded count while prefetch runway remains, got %d", got)
+	}
+	if cmd := m.ensureStoriesLoaded(); cmd != nil {
+		t.Fatal("expected lazy load to stay idle while prefetch runway remains")
 	}
 }
 

@@ -48,6 +48,10 @@ var categoryLabels = map[hn.Category]string{
 }
 
 const initialStoryLoad = 20
+const initialStoryBuffer = 5
+const storyPrefetchMinThreshold = 15
+const storyFetchBatchScreens = 3
+const storyFetchMinBatch = 20
 const listBottomGap = 3
 const listProgressBarHeight = 1
 const toastDuration = 3 * time.Second
@@ -276,7 +280,7 @@ func (m model) initialStoryTarget() int {
 	if visible <= 0 {
 		return initialStoryLoad
 	}
-	return visible + 5
+	return visible + initialStoryBuffer
 }
 
 func storyFromItem(item hn.Item, rank int) hn.Story {
@@ -1616,18 +1620,48 @@ func (m *model) ensureStoriesLoadedThenPrefetchTabs() tea.Cmd {
 }
 
 func (m model) lazyStoryTarget() int {
-	target := initialStoryLoad
-	visible := m.visibleStoryCount()
-	if visible > 0 {
-		target = m.storyListOffset + m.oneAndHalfScreenStoryCount()
-		if target < initialStoryLoad {
-			target = initialStoryLoad
-		}
+	loaded := len(m.stories[m.category])
+	if loaded == 0 {
+		return initialStoryLoad
+	}
+
+	_, visibleEnd := m.visibleScreenRange()
+	if visibleEnd+m.storyPrefetchThreshold() < loaded {
+		return loaded
+	}
+
+	target := loaded + m.storyFetchBatchSize()
+	if target < initialStoryLoad {
+		target = initialStoryLoad
 	}
 	if total := len(m.storyIDs[m.category]); total > 0 && target > total {
 		target = total
 	}
 	return target
+}
+
+func (m model) storyPrefetchThreshold() int {
+	visible := m.visibleStoryCount()
+	if visible <= 0 {
+		return storyPrefetchMinThreshold
+	}
+	threshold := visible * 2
+	if threshold < storyPrefetchMinThreshold {
+		return storyPrefetchMinThreshold
+	}
+	return threshold
+}
+
+func (m model) storyFetchBatchSize() int {
+	visible := m.visibleStoryCount()
+	if visible <= 0 {
+		return storyFetchMinBatch
+	}
+	batch := visible * storyFetchBatchScreens
+	if batch < storyFetchMinBatch {
+		return storyFetchMinBatch
+	}
+	return batch
 }
 
 func (m model) visibleStoryRange() (int, int) {
