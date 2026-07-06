@@ -128,6 +128,26 @@ func TestLoadTranslateConfigUsesCodexChatGPTAccessToken(t *testing.T) {
 	}
 }
 
+func TestLoadTranslateConfigNormalizesCodexSparkReasoning(t *testing.T) {
+	root := isolateConfigEnv(t)
+	writeCodexAuth(t, root, `{
+		"auth_mode":"chatgpt",
+		"OPENAI_API_KEY":null,
+		"tokens":{"access_token":"oauth-access-token"}
+	}`)
+	t.Setenv("HN_TRANSLATE_MODEL", codexSparkTranslateModel)
+	t.Setenv("HN_TRANSLATE_REASONING_EFFORT", "none")
+
+	cfg := LoadTranslateConfig()
+
+	if cfg.Model != codexSparkTranslateModel {
+		t.Fatalf("expected Spark model, got %q", cfg.Model)
+	}
+	if cfg.ReasoningEffort != "low" {
+		t.Fatalf("expected Spark reasoning effort to normalize to low, got %q", cfg.ReasoningEffort)
+	}
+}
+
 func TestLoadTranslateConfigHintsWhenCodexChatGPTTokenMissing(t *testing.T) {
 	root := isolateConfigEnv(t)
 	writeCodexAuth(t, root, `{

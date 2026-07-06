@@ -35,6 +35,7 @@ const (
 	defaultCodexOAuthTranslateModel  = "gpt-5.5"
 	defaultCodexOAuthReasoningEffort = "none"
 	defaultCodexOAuthServiceTier     = "priority"
+	codexSparkTranslateModel         = "gpt-5.3-codex-spark"
 	translateWireAPIChatCompletions  = "chat_completions"
 	translateWireAPICodexResponses   = "codex_responses"
 	translateAuthSourceConfigured    = "configured"
@@ -155,6 +156,7 @@ func LoadTranslateConfig() TranslateConfig {
 		} else if strings.EqualFold(tc.ServiceTier, "fast") {
 			tc.ServiceTier = defaultCodexOAuthServiceTier
 		}
+		tc.ReasoningEffort = normalizeCodexOAuthReasoningEffort(tc.Model, tc.ReasoningEffort)
 	} else if tc.WireAPI == "" {
 		tc.WireAPI = translateWireAPIChatCompletions
 	}
@@ -163,6 +165,14 @@ func LoadTranslateConfig() TranslateConfig {
 	}
 
 	return tc
+}
+
+func normalizeCodexOAuthReasoningEffort(model, effort string) string {
+	trimmed := strings.TrimSpace(effort)
+	if strings.EqualFold(strings.TrimSpace(model), codexSparkTranslateModel) && (trimmed == "" || strings.EqualFold(trimmed, "none")) {
+		return "low"
+	}
+	return trimmed
 }
 
 func codexAuthPath() string {

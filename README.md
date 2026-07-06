@@ -180,7 +180,9 @@ checks `OPENAI_API_KEY`, then Codex auth in `~/.codex/auth.json` or
 `https://chatgpt.com/backend-api/codex/responses` with Codex-compatible
 streaming headers. When this fallback is used, the default model is `gpt-5.5`
 with `reasoning_effort=none`; fast mode maps to OpenAI priority processing via
-`service_tier=priority`.
+`service_tier=priority`. For lower-latency translation, set
+`HN_TRANSLATE_MODEL=gpt-5.3-codex-spark`; Spark requires reasoning effort
+`low` or higher, so `none` is normalized to `low`.
 
 Example `.env`:
 
