@@ -41,6 +41,32 @@ $ winget install heartleo.hn
 $ curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh | sh
 ```
 
+No `sudo` needed — the binary is installed under your home directory. The install
+directory is picked from the first of these that is set:
+
+| Source            | Value                    |
+| ----------------- | ------------------------ |
+| `HN_INSTALL_DIR`  | used as-is               |
+| `XDG_BIN_HOME`    | used as-is               |
+| `XDG_DATA_HOME`   | `$XDG_DATA_HOME/../bin`  |
+| *(default)*       | `$HOME/.local/bin`       |
+
+To install somewhere else:
+
+```bash
+$ curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh | HN_INSTALL_DIR=~/bin sh
+```
+
+The script warns if the install directory is not on your `$PATH`, and prints the
+`export PATH=...` line to add to your shell profile.
+
+The script never calls `sudo`. To install system-wide, run it as root yourself:
+
+```bash
+$ curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh -o install.sh
+$ sudo env HN_INSTALL_DIR=/usr/local/bin sh install.sh
+```
+
 **Prebuilt binaries** — download from [GitHub Releases](https://github.com/heartleo/hn-cli/releases):
 
 | Platform        | Archive                             |
