@@ -46,13 +46,17 @@ jobs:
 
       - name: Commit
         run: |
-          if git diff --quiet -- docs; then
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Stage first, then test the index. `git diff -- docs` only sees
+          # modifications to tracked files, so on the very first run — when the
+          # pages are brand-new and untracked — it reports no change and the
+          # commit is skipped. Staging brings untracked files into the diff.
+          git add docs
+          if git diff --cached --quiet; then
             echo "no changes to commit"
             exit 0
           fi
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs
           git commit -m "chore: update digest $(date -u +'%Y-%m-%d %H:%M UTC')"
           # The hourly tick and a manual run can both be mid-flight; rebase
           # rather than fail on a push race.
