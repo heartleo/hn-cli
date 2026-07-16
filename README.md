@@ -67,16 +67,7 @@ $ curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh -
 $ sudo env HN_INSTALL_DIR=/usr/local/bin sh install.sh
 ```
 
-**Prebuilt binaries** — download from [GitHub Releases](https://github.com/heartleo/hn-cli/releases):
-
-| Platform        | Archive                             |
-| --------------- | ----------------------------------- |
-| Linux x86\_64   | `hn_<version>_linux_x86_64.tar.gz`  |
-| Linux arm64     | `hn_<version>_linux_arm64.tar.gz`   |
-| macOS x86\_64   | `hn_<version>_darwin_x86_64.tar.gz` |
-| macOS arm64     | `hn_<version>_darwin_arm64.tar.gz`  |
-| Windows x86\_64 | `hn_<version>_windows_x86_64.zip`   |
-| Windows arm64   | `hn_<version>_windows_arm64.zip`    |
+**Prebuilt binaries** — download from [GitHub Releases](https://github.com/heartleo/hn-cli/releases)
 
 **Go install** (requires Go 1.25+):
 
