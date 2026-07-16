@@ -1,0 +1,17 @@
+{
+  "name": "hn-cli",
+  "metadata": {
+    "description": "Hacker News tooling for Claude, from the hn terminal client."
+  },
+  "owner": {
+    "name": "heartleo"
+  },
+  "plugins": [
+    {
+      "name": "hn",
+      "source": "./plugins/hn",
+      "description": "Hacker News for Claude. Scan the front page for today's themes, hot discussions, and industry mix.",
+      "category": "productivity"
+    }
+  ]
+}

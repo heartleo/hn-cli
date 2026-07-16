@@ -44,12 +44,12 @@ $ curl -fsSL https://raw.githubusercontent.com/heartleo/hn-cli/main/install.sh |
 No `sudo` needed — the binary is installed under your home directory. The install
 directory is picked from the first of these that is set:
 
-| Source            | Value                    |
-| ----------------- | ------------------------ |
-| `HN_INSTALL_DIR`  | used as-is               |
-| `XDG_BIN_HOME`    | used as-is               |
-| `XDG_DATA_HOME`   | `$XDG_DATA_HOME/../bin`  |
-| *(default)*       | `$HOME/.local/bin`       |
+| Source           | Value                   |
+| ---------------- | ----------------------- |
+| `HN_INSTALL_DIR` | used as-is              |
+| `XDG_BIN_HOME`   | used as-is              |
+| `XDG_DATA_HOME`  | `$XDG_DATA_HOME/../bin` |
+| *(default)*      | `$HOME/.local/bin`      |
 
 To install somewhere else:
 
@@ -91,6 +91,21 @@ $ git clone https://github.com/heartleo/hn-cli
 $ cd hn
 $ go build -o hn ./cmd/hn
 ```
+
+## Claude Code Plugin
+
+This repo also ships [**hn**](plugins/hn), a Claude Code plugin that brings Hacker News to Claude.
+
+```
+/plugin marketplace add heartleo/hn-cli
+/plugin install hn@hn-cli
+```
+
+| Skill       | What it does                                                        |
+| ----------- | ------------------------------------------------------------------- |
+| `hn-digest` | Scan the front page — today's themes, hot discussions, industry mix |
+
+Then just ask: `what's on HN today`. Ask in any language and the digest comes back in that language. See the [plugin README](plugins/hn) for details.
 
 ## Quick Start
 

@@ -1,0 +1,34 @@
+name: plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude-plugin/**'
+      - 'plugins/**'
+      - '.github/workflows/plugin.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.claude-plugin/**'
+      - 'plugins/**'
+      - '.github/workflows/plugin.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate marketplace manifest
+        run: claude plugin validate ./ --strict
+
+      - name: Validate plugin manifest
+        run: claude plugin validate ./plugins/hn --strict

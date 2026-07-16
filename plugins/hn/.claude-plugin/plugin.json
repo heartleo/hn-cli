@@ -1,0 +1,21 @@
+{
+  "name": "hn",
+  "displayName": "Hacker News",
+  "version": "0.1.0",
+  "description": "Hacker News for Claude. Scan the front page for today's themes, hot discussions, and industry mix.",
+  "author": {
+    "name": "heartleo"
+  },
+  "homepage": "https://github.com/heartleo/hn-cli",
+  "repository": "https://github.com/heartleo/hn-cli",
+  "license": "MIT",
+  "keywords": [
+    "hacker-news",
+    "hn",
+    "news",
+    "digest",
+    "summary",
+    "trends",
+    "front-page"
+  ]
+}
