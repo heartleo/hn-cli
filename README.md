@@ -98,6 +98,25 @@ This repo also ships [**hn**](plugins/hn), a Claude Code plugin that brings Hack
 
 Then just ask: `what's on HN today`. Ask in any language and the digest comes back in that language. See the [plugin README](plugins/hn) for details.
 
+## Website
+
+The same digest is published as a static site at **[hndigest.heartleo.dev](https://hndigest.heartleo.dev)** — no Claude Code required, in English and Chinese.
+
+A GitHub Action regenerates it hourly, skipping the model call when the front page hasn't changed. The backend defaults to [GitHub Models](https://docs.github.com/en/github-models), which is free and authenticates with the workflow's built-in token — there is no secret to configure. Point it at any OpenAI-compatible endpoint to use another provider:
+
+| Variable            | Default                              | Description                          |
+| ------------------- | ------------------------------------ | ------------------------------------ |
+| `HN_DIGEST_API_URL` | `https://models.github.ai/inference` | OpenAI-compatible base URL           |
+| `HN_DIGEST_API_KEY` | `$GITHUB_TOKEN`                      | API key                              |
+| `HN_DIGEST_MODEL`   | `openai/gpt-4o`                      | Model id                             |
+
+Generate locally:
+
+```bash
+$ GITHUB_TOKEN=<token> go run ./cmd/hn-digest --out docs
+$ go run ./cmd/hn-digest --out docs --force   # ignore the unchanged check
+```
+
 ## Quick Start
 
 ```bash
