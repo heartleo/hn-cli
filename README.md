@@ -232,7 +232,3 @@ Issues, bug reports, feature suggestions, and general feedback are very welcome:
 
 > [!NOTE]
 > This project is maintained in my spare time, and I currently do not have enough capacity to properly review external pull requests. See [CONTRIBUTING.md](CONTRIBUTING.md) for details. Thank you for your understanding!
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=heartleo/hn-cli&type=Date)](https://star-history.com/#heartleo/hn-cli&Date)
