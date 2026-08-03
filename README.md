@@ -102,18 +102,20 @@ Then just ask: `what's on HN today`. Ask in any language and the digest comes ba
 
 The same digest is published as a static site at **[hndigest.heartleo.dev](https://hndigest.heartleo.dev)** — no Claude Code required, in English and Chinese.
 
-A GitHub Action regenerates it hourly, skipping the model call when the front page hasn't changed. The backend defaults to [GitHub Models](https://docs.github.com/en/github-models), which is free and authenticates with the workflow's built-in token — there is no secret to configure. Point it at any OpenAI-compatible endpoint to use another provider:
+A GitHub Action regenerates it once a day at 00:00 UTC, skipping the model call when the front page hasn't changed. The backend defaults to [Groq](https://console.groq.com), whose free tier covers that schedule several times over — set `HN_DIGEST_API_KEY` as a repository secret. Point it at any OpenAI-compatible endpoint to use another provider:
 
-| Variable            | Default                              | Description                          |
-| ------------------- | ------------------------------------ | ------------------------------------ |
-| `HN_DIGEST_API_URL` | `https://models.github.ai/inference` | OpenAI-compatible base URL           |
-| `HN_DIGEST_API_KEY` | `$GITHUB_TOKEN`                      | API key                              |
-| `HN_DIGEST_MODEL`   | `openai/gpt-4o`                      | Model id                             |
+| Variable            | Default                            | Description                |
+| ------------------- | ---------------------------------- | -------------------------- |
+| `HN_DIGEST_API_URL` | `https://api.groq.com/openai/v1`   | OpenAI-compatible base URL |
+| `HN_DIGEST_API_KEY` | —                                  | API key (required)         |
+| `HN_DIGEST_MODEL`   | `openai/gpt-oss-120b`              | Model id                   |
+
+This used to run on GitHub Models with the workflow's built-in token and no secret at all. GitHub [retired that service on 2026-07-30](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/), so a key is required now.
 
 Generate locally:
 
 ```bash
-$ GITHUB_TOKEN=<token> go run ./cmd/hn-digest --out docs
+$ HN_DIGEST_API_KEY=<key> go run ./cmd/hn-digest --out docs
 $ go run ./cmd/hn-digest --out docs --force   # ignore the unchanged check
 ```
 

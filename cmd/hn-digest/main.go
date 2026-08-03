@@ -3,10 +3,10 @@
 // It fetches the Hacker News front page, and — unless the same stories were
 // already rendered — asks an LLM to summarise it, writing one HTML page per
 // language. The output is committed to the repo, which is what GitHub Pages
-// serves and what keeps the hourly schedule alive.
+// serves and what keeps the daily schedule alive.
 //
-// Backend defaults to GitHub Models (free; authenticates with GITHUB_TOKEN).
-// Point HN_DIGEST_API_URL at any OpenAI-compatible endpoint to use another.
+// Backend defaults to Groq, whose free tier covers that schedule many times
+// over. Point HN_DIGEST_API_URL at any OpenAI-compatible endpoint to use another.
 package main
 
 import (
@@ -65,7 +65,7 @@ func run() error {
 
 	llm := digest.LLMFromEnv()
 	if !llm.Configured() {
-		return fmt.Errorf("no API key: set HN_DIGEST_API_KEY, or GITHUB_TOKEN with `permissions: models: read`")
+		return fmt.Errorf("no API key: set HN_DIGEST_API_KEY (free key at https://console.groq.com/keys)")
 	}
 
 	stats := digest.Summarize(stories)

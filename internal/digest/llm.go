@@ -13,19 +13,27 @@ import (
 	"time"
 )
 
-// GitHub Models is the default backend: it is free, OpenAI-compatible, and in
-// GitHub Actions it authenticates with the built-in GITHUB_TOKEN — a workflow
-// only needs `permissions: models: read`, with no secret to configure.
+// Groq is the default backend: OpenAI-compatible, and its free tier covers the
+// daily schedule many times over (this generates two digests a day).
+//
+// The previous default was GitHub Models, which authenticated with the
+// workflow's built-in GITHUB_TOKEN and needed no secret at all. GitHub retired
+// it on 2026-07-30 — the endpoint now answers 410 for everyone — so a key in
+// HN_DIGEST_API_KEY is required from here on.
+//
+// gpt-oss-120b is the default: on Groq it is both cheaper per token and faster
+// than the 70B Llama, with the headroom to summarise 30 headlines well.
+// Override with HN_DIGEST_MODEL to use another.
 const (
-	defaultAPIURL = "https://models.github.ai/inference"
-	defaultModel  = "openai/gpt-4o"
+	defaultAPIURL = "https://api.groq.com/openai/v1"
+	defaultModel  = "openai/gpt-oss-120b"
 )
 
 // LLM calls an OpenAI-compatible chat completions API.
 //
-// Any provider speaking that shape works — GitHub Models, Groq, OpenRouter,
-// Cerebras, a local Ollama — by pointing APIURL at it. Nothing here is
-// GitHub-specific beyond the defaults.
+// Any provider speaking that shape works — Groq, OpenRouter, Cerebras, DeepSeek,
+// a local Ollama — by pointing APIURL at it. Nothing here is Groq-specific
+// beyond the defaults.
 type LLM struct {
 	APIURL string
 	APIKey string
@@ -34,8 +42,7 @@ type LLM struct {
 	http *http.Client
 }
 
-// NewLLM builds a client, falling back to the free GitHub Models defaults for
-// any empty field.
+// NewLLM builds a client, falling back to the Groq defaults for any empty field.
 func NewLLM(apiURL, apiKey, model string) *LLM {
 	if apiURL == "" {
 		apiURL = defaultAPIURL
@@ -56,16 +63,13 @@ func NewLLM(apiURL, apiKey, model string) *LLM {
 // LLMFromEnv builds a client from the environment.
 //
 // Precedence matches the rest of this repo: explicit env vars win, then the
-// GitHub Models defaults. HN_DIGEST_API_KEY falls back to GITHUB_TOKEN so that
-// a workflow needs no secret at all.
+// defaults above. There is deliberately no GITHUB_TOKEN fallback — it only ever
+// worked against GitHub Models, and with a third-party APIURL it would send the
+// workflow's token to that provider as a bearer credential.
 func LLMFromEnv() *LLM {
-	key := os.Getenv("HN_DIGEST_API_KEY")
-	if key == "" {
-		key = os.Getenv("GITHUB_TOKEN")
-	}
 	return NewLLM(
 		os.Getenv("HN_DIGEST_API_URL"),
-		key,
+		os.Getenv("HN_DIGEST_API_KEY"),
 		os.Getenv("HN_DIGEST_MODEL"),
 	)
 }
@@ -78,7 +82,7 @@ func (l *LLM) Configured() bool {
 // Complete sends one chat completion and returns the message content.
 func (l *LLM) Complete(ctx context.Context, system, user string) (string, error) {
 	if !l.Configured() {
-		return "", errors.New("llm is not configured: set HN_DIGEST_API_KEY or GITHUB_TOKEN")
+		return "", errors.New("llm is not configured: set HN_DIGEST_API_KEY")
 	}
 
 	body, err := json.Marshal(chatRequest{

@@ -74,13 +74,13 @@ func TestFingerprintIgnoresScoresAndOrder(t *testing.T) {
 	base := testStories()
 	fp := Fingerprint(base)
 
-	// Scores tick constantly. If they fed the fingerprint, every hourly run
+	// Scores tick constantly. If they fed the fingerprint, every scheduled run
 	// would look like a change and the skip would never fire.
 	bumped := testStories()
 	bumped[0].Points += 40
 	bumped[1].NumComments += 7
 	if got := Fingerprint(bumped); got != fp {
-		t.Error("fingerprint changed when only scores moved; the hourly skip would never fire")
+		t.Error("fingerprint changed when only scores moved; the unchanged skip would never fire")
 	}
 
 	reordered := []Story{base[1], base[0]}
@@ -193,14 +193,14 @@ func TestPromptCarriesDiscussionURLAndStoryCount(t *testing.T) {
 	}
 }
 
-func TestLLMDefaultsToFreeGitHubModels(t *testing.T) {
+func TestLLMDefaultsToFreeGroq(t *testing.T) {
 	llm := NewLLM("", "tok", "")
 
-	if llm.APIURL != "https://models.github.ai/inference" {
-		t.Errorf("APIURL = %q, want the GitHub Models endpoint", llm.APIURL)
+	if llm.APIURL != "https://api.groq.com/openai/v1" {
+		t.Errorf("APIURL = %q, want the Groq endpoint", llm.APIURL)
 	}
-	if llm.Model != "openai/gpt-4o" {
-		t.Errorf("Model = %q, want openai/gpt-4o", llm.Model)
+	if llm.Model != "openai/gpt-oss-120b" {
+		t.Errorf("Model = %q, want openai/gpt-oss-120b", llm.Model)
 	}
 	if !llm.Configured() {
 		t.Error("a client with a key should be configured")
@@ -210,9 +210,21 @@ func TestLLMDefaultsToFreeGitHubModels(t *testing.T) {
 	}
 
 	// Any OpenAI-compatible endpoint must override cleanly, trailing slash included.
-	custom := NewLLM("https://api.groq.com/openai/v1/", "k", "llama-3.3-70b-versatile")
-	if custom.APIURL != "https://api.groq.com/openai/v1" {
+	custom := NewLLM("https://openrouter.ai/api/v1/", "k", "deepseek/deepseek-chat")
+	if custom.APIURL != "https://openrouter.ai/api/v1" {
 		t.Errorf("APIURL = %q, want the trailing slash trimmed", custom.APIURL)
+	}
+}
+
+// GITHUB_TOKEN used to stand in for a missing key, back when the default
+// backend was GitHub Models. That fallback is gone: with a third-party APIURL
+// it would hand the workflow's token to that provider.
+func TestLLMFromEnvIgnoresGitHubToken(t *testing.T) {
+	t.Setenv("HN_DIGEST_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "ghs_secret")
+
+	if llm := LLMFromEnv(); llm.Configured() {
+		t.Errorf("APIKey = %q, want no key without HN_DIGEST_API_KEY", llm.APIKey)
 	}
 }
 
@@ -301,7 +313,7 @@ func TestRenderPage(t *testing.T) {
 		"#6b6b6b",     // metadata grey, 5.33:1
 		"HN Digest",   // wordmark
 		// The build time left the visible footer, but the page rewrites itself
-		// hourly — without it a reader on a cached copy cannot tell its age.
+		// daily — without it a reader on a cached copy cannot tell its age.
 		`<meta name="date" content="2026-07-16T04:00:00Z">`,
 	} {
 		if !strings.Contains(got, want) {

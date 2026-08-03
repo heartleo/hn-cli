@@ -2,9 +2,10 @@ name: digest
 
 on:
   schedule:
-    # Hourly. GitHub runs scheduled workflows late at peak times, often by tens
-    # of minutes — this is "about once an hour", not "on the hour".
-    - cron: '0 * * * *'
+    # Once a day at 00:00 UTC. GitHub runs scheduled workflows late at peak
+    # times, often by tens of minutes — this is "about midnight UTC", not "on
+    # the stroke of midnight".
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -12,17 +13,15 @@ on:
         type: boolean
         default: false
       model:
-        description: 'Model id (default: openai/gpt-4o)'
+        description: 'Model id (default: openai/gpt-oss-120b)'
         type: string
         default: ''
 
-# models: read lets the built-in GITHUB_TOKEN call GitHub Models — no secret to
-# configure. contents: write is for committing the generated pages.
+# contents: write is for committing the generated pages.
 permissions:
   contents: write
-  models: read
 
-# A slow run must not overlap the next hourly tick and race it to the same files.
+# A slow run must not overlap a manual dispatch and race it to the same files.
 concurrency:
   group: digest
   cancel-in-progress: false
@@ -38,10 +37,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # HN_DIGEST_API_KEY is a repository secret — a free Groq key from
+      # https://console.groq.com/keys. This used to run on GitHub Models with
+      # the built-in GITHUB_TOKEN and no secret, but GitHub retired that
+      # service on 2026-07-30 and the endpoint now returns 410 for everyone.
+      #
+      # HN_DIGEST_API_URL / HN_DIGEST_MODEL are optional repository variables:
+      # set them to move to another OpenAI-compatible provider without a code
+      # change. Empty means the Groq defaults in internal/digest/llm.go.
       - name: Generate digest
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HN_DIGEST_MODEL: ${{ inputs.model }}
+          HN_DIGEST_API_KEY: ${{ secrets.HN_DIGEST_API_KEY }}
+          HN_DIGEST_API_URL: ${{ vars.HN_DIGEST_API_URL }}
+          HN_DIGEST_MODEL: ${{ inputs.model || vars.HN_DIGEST_MODEL }}
         run: go run ./cmd/hn-digest ${{ inputs.force && '--force' || '' }}
 
       - name: Commit
@@ -58,7 +66,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update digest $(date -u +'%Y-%m-%d %H:%M UTC')"
-          # The hourly tick and a manual run can both be mid-flight; rebase
+          # The scheduled tick and a manual run can both be mid-flight; rebase
           # rather than fail on a push race.
           git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"

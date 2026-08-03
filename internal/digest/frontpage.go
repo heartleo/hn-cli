@@ -116,7 +116,7 @@ func fetchFrontPage(ctx context.Context, client *http.Client, url string) ([]Sto
 // order and their scores.
 //
 // Scores are deliberately excluded: they tick constantly, so including them
-// would make every hourly run look like a change and defeat the skip.
+// would make every scheduled run look like a change and defeat the skip.
 func Fingerprint(stories []Story) string {
 	ids := make([]string, 0, len(stories))
 	for _, s := range stories {
