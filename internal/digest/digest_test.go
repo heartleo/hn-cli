@@ -324,6 +324,29 @@ func TestRenderPage(t *testing.T) {
 	if strings.Contains(got, "font-size: 13px;\n  font-weight: 700;\n  letter-spacing: 0.08em") {
 		t.Error("section headings reverted to the small uppercase label treatment")
 	}
+	// Ten stories mean ten titles; set in red they would compete with the prose
+	// links at the same volume, so titles open in ink and red is the hover state.
+	if !strings.Contains(got, "ol li > p:first-child a { color: var(--ink);") {
+		t.Error("story titles no longer open in ink; red is rationed to links and marks")
+	}
+	// A visited title drops to muted: "already read this one" is information too.
+	if !strings.Contains(got, "ol li > p:first-child a:visited { color: var(--muted);") {
+		t.Error("visited story titles no longer demote to muted")
+	}
+	// The header stats are chips, not inline prose — the numbers are what a
+	// returning reader scans the masthead for.
+	if !strings.Contains(got, `class="stats"`) {
+		t.Error("masthead lost the stats chips")
+	}
+	// The author's GitHub is one of the two persistent controls in the masthead.
+	if !strings.Contains(got, `href="https://github.com/heartleo"`) {
+		t.Error("masthead lost the link to the author's GitHub")
+	}
+	// The source credit links back to HN, and the Y mark stays a mark — #ff6600
+	// may paint the icon but never text.
+	if !strings.Contains(got, `href="https://news.ycombinator.com"`) {
+		t.Error("footer no longer links the Hacker News source")
+	}
 	// #e88b2b is 2.57:1 and #ff6600 is 2.94:1 on white — neither clears even the
 	// 3:1 large-text bar. The orange may only appear as the wordmark gradient's
 	// far end, never as a colour some text is set in.
@@ -378,6 +401,70 @@ func TestRenderSeparatesItemLineFromItsReason(t *testing.T) {
 
 	if !strings.Contains(got, "<p>Why it matters.</p>") {
 		t.Error("reason did not render as its own paragraph; it will run into the title")
+	}
+}
+
+func TestRenderIndustryMixAsChart(t *testing.T) {
+	md := "## 3 · Industry mix\n\n```\nDeveloper tools ██████ 6\nLife & career   ███    3\n```\n"
+
+	out, err := Render(md, LangEN, Stats{}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+
+	for _, want := range []string{
+		`class="chart"`,
+		`class="chart-bar"`,
+		"Developer tools",
+		"Life &amp; career", // names are escaped, same containment as the body
+		"width:100%",        // the largest count takes the full track
+		"width:50%",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("chart missing %q", want)
+		}
+	}
+	if strings.Contains(got, "<pre>") {
+		t.Error("bar block still rendered as monospace; the chart transform did not fire")
+	}
+}
+
+func TestRenderIndustryMixFallsBackToPreWhenUnparseable(t *testing.T) {
+	// A model slip must not break the page: output that doesn't follow the
+	// "name █ count" format keeps the monospace rendering it was written for.
+	md := "## 3 · Industry mix\n\n```\nDeveloper tools: 6\n```\n"
+
+	out, err := Render(md, LangEN, Stats{}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+
+	if !strings.Contains(got, "<pre>") {
+		t.Error("unparseable bar block lost its monospace fallback")
+	}
+	if strings.Contains(got, `class="chart"`) {
+		t.Error("unparseable bar block produced a chart anyway")
+	}
+}
+
+func TestRenderIndustryMixOnlyWhenTrailing(t *testing.T) {
+	// The contract puts the bar block last. A fenced block with commentary after
+	// it is not the industry mix, so it must not be eaten by the chart transform.
+	md := "## 3 · Industry mix\n\n```\nDeveloper tools ██████ 6\n```\n\nTrailing commentary the model was told not to write.\n"
+
+	out, err := Render(md, LangEN, Stats{}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+
+	if strings.Contains(got, `class="chart"`) {
+		t.Error("a non-trailing fenced block was mistaken for the industry mix")
+	}
+	if !strings.Contains(got, "Trailing commentary") {
+		t.Error("trailing content was dropped")
 	}
 }
 

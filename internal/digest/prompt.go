@@ -40,6 +40,11 @@ func (l Lang) Dir() string {
 // the language the user asked in; a web page has no asker, so the language is
 // passed explicitly. Second, the skill emits a page title, which the HTML shell
 // already renders — so the model must not repeat it.
+//
+// The fenced bar block in section 3 doubles as a data contract: the page parses
+// each "name █ count" line and re-renders it as a CSS bar chart (extractChart
+// in render.go). The █ run between name and count is the delimiter, so it must
+// stay even though readers never see the monospace form.
 const systemPrompt = `You write a Hacker News front-page digest. Write it in %s.
 
 You are given the current front page as JSON: title, points, num_comments, url
