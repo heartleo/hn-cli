@@ -24,10 +24,11 @@ on:
         description: "API Model"
         type: string
         default: ""
-      api_key:
-        description: "API Key"
-        type: string
-        default: ""
+      # There is deliberately no api_key input. A workflow_dispatch input is
+      # echoed back on the run's own page, and this repository is public, so a
+      # key typed into the form would be readable by anyone forever — masking
+      # only covers log lines, not that header. Ad-hoc keys go in the
+      # HN_DIGEST_API_KEY secret instead.
 
 # contents: write is for committing the generated pages.
 permissions:
@@ -40,7 +41,16 @@ concurrency:
 
 jobs:
   generate:
+    # Manual runs are owner-only. Dispatching already needs write access, but
+    # spelling it out means adding a collaborator does not silently hand out a
+    # button that spends the model quota. `triggering_actor` is whoever pressed
+    # the button — on a re-run, `actor` is still whoever started the original.
+    # The scheduled tick is exempt: it has no meaningful actor.
+    if: github.event_name != 'workflow_dispatch' || github.triggering_actor == github.repository_owner
     runs-on: ubuntu-latest
+    # The program's own context deadline is 10 minutes; this is the outer bound
+    # that also covers checkout, the Go build, and a wedged push.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -48,15 +58,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      # A key typed into the dispatch form is already recorded in the run's
-      # event payload, which nothing can undo — but masking it here at least
-      # keeps it out of every log line that follows.
-      - name: Mask an ad-hoc key
-        if: inputs.api_key != ''
-        env:
-          KEY: ${{ inputs.api_key }}
-        run: echo "::add-mask::$KEY"
 
       # HN_DIGEST_API_URL / HN_DIGEST_MODEL are repository variables, not
       # secrets: an endpoint and a model name are not confidential, and keeping
@@ -70,22 +71,29 @@ jobs:
         env:
           API_URL: ${{ inputs.api_url || vars.HN_DIGEST_API_URL }}
           MODEL: ${{ inputs.model || vars.HN_DIGEST_MODEL }}
-          KEY_SOURCE: ${{ inputs.api_key != '' && 'dispatch input' || 'repo secret' }}
         run: |
           {
             echo "| setting | value |"
             echo "| --- | --- |"
             echo "| API URL | ${API_URL:-(built-in default)} |"
             echo "| model | ${MODEL:-(built-in default)} |"
-            echo "| key from | $KEY_SOURCE |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Dispatch inputs reach the shell as environment variables, never spliced
+      # into the script text — an expression that lands inside `run:` is a
+      # command-injection site the moment an input stops being trusted.
       - name: Generate digest
         env:
-          HN_DIGEST_API_KEY: ${{ inputs.api_key || secrets.HN_DIGEST_API_KEY }}
+          HN_DIGEST_API_KEY: ${{ secrets.HN_DIGEST_API_KEY }}
           HN_DIGEST_API_URL: ${{ inputs.api_url || vars.HN_DIGEST_API_URL }}
           HN_DIGEST_MODEL: ${{ inputs.model || vars.HN_DIGEST_MODEL }}
-        run: go run ./cmd/hn-digest ${{ inputs.force && '--force' || '' }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            go run ./cmd/hn-digest --force
+          else
+            go run ./cmd/hn-digest
+          fi
 
       - name: Commit
         run: |
