@@ -32,3 +32,11 @@ jobs:
 
       - name: Validate plugin manifest
         run: claude plugin validate ./plugins/hn --strict
+
+      - name: Install DeepSeek Harness plugin dependencies
+        working-directory: plugins/hacker-news
+        run: npm install --no-package-lock
+
+      - name: Validate DeepSeek Harness plugin
+        working-directory: plugins/hacker-news
+        run: npm test

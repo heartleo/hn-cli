@@ -1,0 +1,7 @@
+# The hacker-news bundle patch: registers the Hacker News tools on top of the
+# active composition. Every tunable lives in the plugin config schema, so a
+# profile can override this row without touching the package.
+
+- insert:
+    - id: hacker-news
+      name: dsh-hacker-news

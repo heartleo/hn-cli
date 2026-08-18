@@ -1,0 +1,43 @@
+{
+  "name": "dsh-hacker-news",
+  "version": "0.1.0",
+  "description": "Hacker News tools for DeepSeek Harness: front-page feeds, item comment trees, Algolia search, user profiles.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test && node load-check.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "load-check.mjs",
+    "src/*.js",
+    "test/*.test.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heartleo/hn-cli.git",
+    "directory": "plugins/hacker-news"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1 <5.0.0",
+    "@deepseek-ai/schemastery": ">=3.18.1 <4.0.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1 <0.2.0-0"
+  }
+}

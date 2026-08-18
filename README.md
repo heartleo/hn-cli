@@ -100,6 +100,25 @@ Then just ask: `what's on HN today`. Ask in any language and the digest comes ba
 
 The digest is also published daily at [hndigest.heartleo.dev](https://hndigest.heartleo.dev).
 
+## DeepSeek Harness Plugin
+
+For [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/) there is [**hacker-news**](plugins/hacker-news), a plain-ESM plugin that talks to the public HN APIs directly — no `hn` binary needed.
+
+```sh
+dsh plugin --profile <name> add -w github:heartleo/hn-cli#path:/plugins/hacker-news
+```
+
+Ask naturally, for example: `what's popular on HN?`, `search HN for sqlite`, or `read this HN discussion`.
+
+| Tool         | What it does                                            |
+| ------------ | ------------------------------------------------------- |
+| `hn_stories` | Ranked feeds — top / new / best / ask / show / job       |
+| `hn_item`    | An item plus its reply tree in reading order            |
+| `hn_search`  | Algolia search, by relevance or date                    |
+| `hn_user`    | Karma, account age, bio, submission count               |
+
+See the [plugin README](plugins/hacker-news) for configuration.
+
 ## Quick Start
 
 ```bash
