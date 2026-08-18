@@ -83,32 +83,41 @@ $ cd hn
 $ go build -o hn ./cmd/hn
 ```
 
-## Claude Code Plugin
-
-This repo also ships [**hn**](plugins/hn), a Claude Code plugin that brings Hacker News to Claude.
-
-```
-/plugin marketplace add heartleo/hn-cli
-/plugin install hn@hn-cli
-```
-
-| Skill       | What it does                                                        |
-| ----------- | ------------------------------------------------------------------- |
-| `hn-digest` | Scan the front page — today's themes, hot discussions, industry mix |
-
-Then just ask: `what's on HN today`. Ask in any language and the digest comes back in that language. See the [plugin README](plugins/hn) for details.
-
-The digest is also published daily at [hndigest.heartleo.dev](https://hndigest.heartleo.dev).
-
 ## DeepSeek Harness Plugin
 
-For [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/) there is [**hacker-news**](plugins/hacker-news), a plain-ESM plugin that talks to the public HN APIs directly — no `hn` binary needed.
+For [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/) there is [**hacker-news**](plugins/hacker-news), a plain-ESM plugin that reads the public Hacker News APIs directly. It needs neither an HN API key nor a local terminal client.
+
+### Install from npm
+
+The published package is [`dsh-hacker-news`](https://www.npmjs.com/package/dsh-hacker-news). DSH profiles are pnpm workspace roots, so keep the `-w` flag:
+
+```sh
+dsh plugin --profile <name> add -w dsh-hacker-news
+```
+
+If your npm mirror has not indexed the latest release, run the installation against the public registry:
+
+```powershell
+$env:npm_config_registry = 'https://registry.npmjs.org/'
+dsh plugin --profile <name> add -w dsh-hacker-news
+```
+
+Start or restart the same profile, then verify that the composed configuration includes `dsh-hacker-news`:
+
+```sh
+dsh --profile <name>
+dsh --profile <name> --dump-config
+```
+
+### Install from source
+
+This form follows the repository's `main` branch and is intended for development or trying unreleased changes:
 
 ```sh
 dsh plugin --profile <name> add -w github:heartleo/hn-cli#path:/plugins/hacker-news
 ```
 
-Ask naturally, for example: `what's popular on HN?`, `search HN for sqlite`, or `read this HN discussion`.
+After installation, ask naturally, for example: `what's popular on HN?`, `search HN for sqlite`, or `read HN item 49322107 and summarize the discussion`.
 
 | Tool         | What it does                                            |
 | ------------ | ------------------------------------------------------- |

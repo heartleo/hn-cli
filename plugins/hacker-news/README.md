@@ -28,13 +28,23 @@ Look up the HN user dang.
 
 ## Install
 
+Install the published package:
+
 ```sh
-dsh plugin --profile <name> add -w github:heartleo/hn-cli#path:/plugins/hacker-news
+dsh plugin --profile <name> add -w dsh-hacker-news
 ```
 
-The package ships runnable JavaScript, so no `prepare` build and no pnpm `allowBuilds` entry is needed. A local checkout works too:
+Restart DSH Web after installation. If your npm mirror has not indexed the latest release, use the public npm registry for the install:
+
+```powershell
+$env:npm_config_registry = 'https://registry.npmjs.org/'
+dsh plugin --profile <name> add -w dsh-hacker-news
+```
+
+The package ships runnable JavaScript, so no `prepare` build and no pnpm `allowBuilds` entry is needed. To install directly from the repository or from a local checkout:
 
 ```sh
+dsh plugin --profile <name> add -w github:heartleo/hn-cli#path:/plugins/hacker-news
 dsh plugin --profile <name> add -w /absolute/path/to/hn-cli/plugins/hacker-news
 dsh --profile <name> --dump-config   # shows the "# == dsh-hacker-news" layer
 ```

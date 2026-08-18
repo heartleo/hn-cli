@@ -9,10 +9,10 @@ Migrate the DeepSeek Harness Hacker News plugin from `../hn` into this repositor
 ## Current Status
 
 - The plugin lives in `plugins/hacker-news` as an independent ESM package.
-- The local DSH `web` profile links to this checkout as `dsh-hacker-news`.
-- DSH Web was restarted after the latest changes and was verified at `http://127.0.0.1:3080` with HTTP 200.
-- At the last check, DSH Web was PID `29108`. Treat the PID as transient; re-query it before stopping or restarting the process.
-- The implementation is still uncommitted in the working tree. The earlier migration design document was committed separately as `513d7a6` and has a later uncommitted correction.
+- It is published to npm as [`dsh-hacker-news@0.1.0`](https://www.npmjs.com/package/dsh-hacker-news).
+- The migration is committed and pushed to `main` as `9c0d6b2`.
+- The community-listing submission is open as [awesome-dsh-plugin PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622); it is ready for review and its checks have passed.
+- After installing or upgrading the plugin, restart DSH Web so it loads the new bundle.
 
 ## Implemented
 
@@ -37,11 +37,11 @@ Migrate the DeepSeek Harness Hacker News plugin from `../hn` into this repositor
 - `.github/workflows/plugin.yml` installs the DSH plugin dependencies and runs `npm test` when plugin files change.
 - Independent review found no Critical or Important issue for the migrated plugin and its natural-language routing.
 
-## Community Listing Preparation
+## Community Listing
 
-The intended community registry is [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin). Its hard requirements are met locally: the package declares `dsh.bundle`, contains runnable code and tests, uses official DSH packages as peers, and has explicit ranges that include DSH `0.1.0-rc.6`. The public `heartleo/hn-cli` repository is older than one day, has more than ten commits, and now has the `dsh-plugin` GitHub topic.
+The submission to [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) is [PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622). It adds the registry metadata below and its generated READMEs. The package declares `dsh.bundle`, contains runnable code and tests, uses official DSH packages as peers, and has explicit ranges that include DSH `0.1.0-rc.6`.
 
-After this checkout is committed and pushed to `main`, open a PR in the registry that adds `data/plugins/heartleo__hn-cli--plugins-hacker-news.yml`:
+The registry entry is `data/plugins/heartleo__hn-cli--plugins-hacker-news.yml`:
 
 ```yaml
 url: https://github.com/heartleo/hn-cli/tree/main/plugins/hacker-news
@@ -52,17 +52,32 @@ description:
   zh: 用于获取 Hacker News 榜单、讨论串、搜索和用户资料的工具。
 ```
 
-In that registry checkout, run `npm ci` followed by `node scripts/generate-readme.mjs`, then commit the generated READMEs with the YAML file. Do not edit those READMEs manually. npm publication or a GitHub Release tarball is optional because this plugin is source-installable and requires no build step.
+The registry workflow requires `npm ci` and `node scripts/generate-readme.mjs`; generated READMEs must be committed with the YAML file and not edited by hand. The current PR already follows that workflow.
 
-## Install Locally
+## Install and Use
 
-DSH profiles are pnpm workspace roots, so `add` must receive `-w`. Local paths are resolved from the profile directory, so use an absolute path.
+DSH profiles are pnpm workspace roots, so `add` must receive `-w`. Install the npm package:
+
+```powershell
+dsh plugin --profile web add -w dsh-hacker-news
+```
+
+If a configured npm mirror has not indexed the release, use the public npm registry for this shell session:
+
+```powershell
+$env:npm_config_registry = 'https://registry.npmjs.org/'
+dsh plugin --profile web add -w dsh-hacker-news
+```
+
+Restart `dsh web`, then ask naturally, for example: “What’s popular on Hacker News?”, “Search HN for SQLite WASM”, or “Read HN item 49322107 and summarize the discussion.”
+
+For development, local paths are resolved from the profile directory, so use an absolute path:
 
 ```powershell
 dsh plugin --profile web add -w "D:/myspace/github/OPEN/hn-cli/plugins/hacker-news"
 ```
 
-Remote repository form:
+Repository-source form:
 
 ```powershell
 dsh plugin --profile web add -w github:heartleo/hn-cli#path:/plugins/hacker-news
@@ -75,7 +90,7 @@ dsh plugin --profile web list --depth 0
 dsh --profile web --dump-config | Select-String "dsh-hacker-news|hacker-news"
 ```
 
-Observed with DSH `0.1.0-rc.6`: running `dsh plugin --profile web install` kept the linked dependency but removed `dsh-hacker-news` from `dsh.profile.bundles`. If that happens, run the `add -w` command again before restarting DSH.
+Observed with DSH `0.1.0-rc.6`: running `dsh plugin --profile web install` kept a linked dependency but removed `dsh-hacker-news` from `dsh.profile.bundles`. If that happens, run the relevant `add -w` command again before restarting DSH.
 
 ## Test
 
@@ -95,7 +110,7 @@ claude plugin validate ./ --strict
 claude plugin validate ./plugins/hn --strict
 ```
 
-All of the above passed on 2026-08-17. `git diff --check` also passed.
+All of the above passed during the 0.1.0 release validation. `git diff --check` also passed.
 
 ## Restart DSH Web
 
@@ -118,22 +133,14 @@ Invoke-WebRequest http://127.0.0.1:3080 -UseBasicParsing
 dsh --profile web --dump-config | Select-String "dsh-hacker-news"
 ```
 
-## Working Tree
+## Release State
 
-Last observed status:
-
-```text
- M .github/workflows/plugin.yml
- M .gitignore
- M README.md
- M docs/superpowers/specs/2026-08-17-dsh-plugin-migration-design.md
-?? docs/handoff.md
-?? plugins/hacker-news/
-```
-
-All listed changes belong to the DSH plugin migration or its documentation. Do not drop the pre-existing migration changes when preparing a commit.
+- Repository migration: committed and pushed to `main`.
+- npm package: `dsh-hacker-news@0.1.0` is published with the `latest` tag.
+- Community listing: [PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622) is awaiting maintainer review.
+- Documentation in the npm package is a release snapshot. Changes to `plugins/hacker-news/README.md` appear on npm only after publishing a new package version.
 
 ## Remaining Work
 
-1. Optionally perform a manual Web UI smoke test: ask for the top three HN stories and confirm the agent calls `hn_stories`.
-2. Commit the migration and invocation changes when ready.
+1. Monitor community-listing PR #1622 and address maintainer feedback if any.
+2. When the npm README needs an update, bump the package version, run the package checks, and publish the new version; npm does not allow replacing the README of `0.1.0`.
