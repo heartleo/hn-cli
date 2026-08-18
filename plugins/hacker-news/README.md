@@ -2,6 +2,8 @@
 
 Hacker News tools for [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/): browse the ranked feeds, read a thread with its reply tree, search the Algolia index, and look up a user.
 
+The plugin is published as [`dsh-hacker-news`](https://www.npmjs.com/package/dsh-hacker-news) and listed in the [awesome-dsh-plugin community registry](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin).
+
 Plain ESM JavaScript, no build step and no runtime dependency on the `hn` binary — it talks to the public HN APIs directly (`https://hacker-news.firebaseio.com/v0` and `https://hn.algolia.com/api/v1`).
 
 ## Tools

@@ -83,13 +83,30 @@ $ cd hn
 $ go build -o hn ./cmd/hn
 ```
 
+## Claude Code Plugin
+
+This repo also ships [**hn**](plugins/hn), a Claude Code plugin that brings Hacker News to Claude.
+
+```
+/plugin marketplace add heartleo/hn-cli
+/plugin install hn@hn-cli
+```
+
+| Skill       | What it does                                                        |
+| ----------- | ------------------------------------------------------------------- |
+| `hn-digest` | Scan the front page — today's themes, hot discussions, industry mix |
+
+Then just ask: `what's on HN today`. Ask in any language and the digest comes back in that language. See the [plugin README](plugins/hn) for details.
+
+The digest is also published daily at [hndigest.heartleo.dev](https://hndigest.heartleo.dev).
+
 ## DeepSeek Harness Plugin
 
 For [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harness/) there is [**hacker-news**](plugins/hacker-news), a plain-ESM plugin that reads the public Hacker News APIs directly. It needs neither an HN API key nor a local terminal client.
 
 ### Install from npm
 
-The published package is [`dsh-hacker-news`](https://www.npmjs.com/package/dsh-hacker-news). DSH profiles are pnpm workspace roots, so keep the `-w` flag:
+The published package is [`dsh-hacker-news`](https://www.npmjs.com/package/dsh-hacker-news). It is also listed in the [awesome-dsh-plugin community registry](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin). DSH profiles are pnpm workspace roots, so keep the `-w` flag:
 
 ```sh
 dsh plugin --profile <name> add -w dsh-hacker-news

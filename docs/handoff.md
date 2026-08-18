@@ -11,7 +11,7 @@ Migrate the DeepSeek Harness Hacker News plugin from `../hn` into this repositor
 - The plugin lives in `plugins/hacker-news` as an independent ESM package.
 - It is published to npm as [`dsh-hacker-news@0.1.0`](https://www.npmjs.com/package/dsh-hacker-news).
 - The migration is committed and pushed to `main` as `9c0d6b2`.
-- The community-listing submission is open as [awesome-dsh-plugin PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622); it is ready for review and its checks have passed.
+- The community-listing submission [awesome-dsh-plugin PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622) has been merged; its checks passed before merge.
 - After installing or upgrading the plugin, restart DSH Web so it loads the new bundle.
 
 ## Implemented
@@ -137,10 +137,10 @@ dsh --profile web --dump-config | Select-String "dsh-hacker-news"
 
 - Repository migration: committed and pushed to `main`.
 - npm package: `dsh-hacker-news@0.1.0` is published with the `latest` tag.
-- Community listing: [PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622) is awaiting maintainer review.
+- Community listing: [PR #1622](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/1622) has been merged.
 - Documentation in the npm package is a release snapshot. Changes to `plugins/hacker-news/README.md` appear on npm only after publishing a new package version.
 
 ## Remaining Work
 
-1. Monitor community-listing PR #1622 and address maintainer feedback if any.
+1. Address any follow-up requested by the community registry maintainers.
 2. When the npm README needs an update, bump the package version, run the package checks, and publish the new version; npm does not allow replacing the README of `0.1.0`.
