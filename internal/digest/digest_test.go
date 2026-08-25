@@ -255,7 +255,9 @@ func TestLLMComplete(t *testing.T) {
 }
 
 func TestLLMCompleteSurfacesErrorBody(t *testing.T) {
+	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(`{"error":{"message":"rate limit exceeded"}}`))
 	}))
@@ -268,6 +270,73 @@ func TestLLMCompleteSurfacesErrorBody(t *testing.T) {
 	// Free backends report quota problems in the body; a bare status is undiagnosable.
 	if !strings.Contains(err.Error(), "rate limit exceeded") {
 		t.Errorf("error does not carry the response body: %v", err)
+	}
+	// 429 means "out of quota", not "transient" — retrying just burns the
+	// same error 11 times over minutes. Only 503 is worth retrying.
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1: 429 must not be retried", calls)
+	}
+}
+
+// shrinkBackoffForTest lowers the retry knobs so a test that exhausts
+// maxRetries runs in milliseconds instead of minutes.
+func shrinkBackoffForTest(t *testing.T) {
+	t.Helper()
+	origRetries, origBase, origCap := maxRetries, backoffBase, backoffCap
+	maxRetries, backoffBase, backoffCap = 3, time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() {
+		maxRetries, backoffBase, backoffCap = origRetries, origBase, origCap
+	})
+}
+
+func TestLLMCompleteRetries503ThenSucceeds(t *testing.T) {
+	shrinkBackoffForTest(t)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"model overloaded"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewLLM(srv.URL, "tok", "m").Complete(context.Background(), "s", "u")
+	if err != nil {
+		t.Fatalf("Complete() error = %v, want nil after eventual success", err)
+	}
+	if got != "ok" {
+		t.Errorf("Complete() = %q, want %q", got, "ok")
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want 3 (2 failures + 1 success)", calls)
+	}
+}
+
+func TestLLMCompleteGivesUpAfterMaxRetries(t *testing.T) {
+	shrinkBackoffForTest(t)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"model overloaded"}}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewLLM(srv.URL, "tok", "m").Complete(context.Background(), "s", "u")
+	if err == nil {
+		t.Fatal("want an error once every attempt returns 503")
+	}
+	if !strings.Contains(err.Error(), "model overloaded") {
+		t.Errorf("error does not carry the last response body: %v", err)
+	}
+	// maxRetries retries plus the initial attempt.
+	if want := maxRetries + 1; calls != want {
+		t.Errorf("calls = %d, want %d (1 initial + %d retries)", calls, want, maxRetries)
 	}
 }
 

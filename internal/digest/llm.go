@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -27,6 +28,19 @@ import (
 const (
 	defaultAPIURL = "https://api.groq.com/openai/v1"
 	defaultModel  = "openai/gpt-oss-120b"
+)
+
+// A 503 from a free backend ("model overloaded") is transient — observed on
+// Gemini's OpenAI-compat endpoint clearing within seconds to a couple of
+// minutes. Retrying is worth it; other 4xx/5xx codes (401, 404, 429, ...)
+// mean something is actually wrong and retrying just burns the 10-minute
+// program deadline (see cmd/hn-digest/main.go) for the same error.
+// vars, not consts, so tests can shrink them and run in milliseconds instead
+// of minutes.
+var (
+	maxRetries  = 10
+	backoffBase = 1 * time.Second
+	backoffCap  = 20 * time.Second
 )
 
 // LLM calls an OpenAI-compatible chat completions API.
@@ -80,6 +94,9 @@ func (l *LLM) Configured() bool {
 }
 
 // Complete sends one chat completion and returns the message content.
+//
+// A 503 ("model overloaded") is retried with exponential backoff up to
+// maxRetries times; any other error status returns immediately.
 func (l *LLM) Complete(ctx context.Context, system, user string) (string, error) {
 	if !l.Configured() {
 		return "", errors.New("llm is not configured: set HN_DIGEST_API_KEY")
@@ -96,16 +113,40 @@ func (l *LLM) Complete(ctx context.Context, system, user string) (string, error)
 		return "", err
 	}
 
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := sleepBackoff(ctx, attempt); err != nil {
+				return "", lastErr
+			}
+		}
+
+		content, status, err := l.complete(ctx, body)
+		if err == nil {
+			return content, nil
+		}
+		lastErr = err
+		if status != http.StatusServiceUnavailable {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+// complete performs a single chat-completion request. status is the HTTP
+// status of a non-2xx response, or 0 when err is not a response error (e.g.
+// a network failure, or a decode error).
+func (l *LLM) complete(ctx context.Context, body []byte) (content string, status int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.APIURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+l.APIKey)
 
 	resp, err := l.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 
@@ -114,22 +155,43 @@ func (l *LLM) Complete(ctx context.Context, system, user string) (string, error)
 		// there, and the bare status alone makes those undiagnosable.
 		var msg bytes.Buffer
 		_, _ = msg.ReadFrom(io.LimitReader(resp.Body, 2<<10))
-		return "", fmt.Errorf("llm request failed: %s: %s", resp.Status, strings.TrimSpace(msg.String()))
+		return "", resp.StatusCode, fmt.Errorf("llm request failed: %s: %s", resp.Status, strings.TrimSpace(msg.String()))
 	}
 
 	var out chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if len(out.Choices) == 0 {
-		return "", errors.New("llm response has no choices")
+		return "", 0, errors.New("llm response has no choices")
 	}
 
-	content := strings.TrimSpace(out.Choices[0].Message.Content)
-	if content == "" {
-		return "", errors.New("llm response is empty")
+	got := strings.TrimSpace(out.Choices[0].Message.Content)
+	if got == "" {
+		return "", 0, errors.New("llm response is empty")
 	}
-	return stripMarkdownFence(content), nil
+	return stripMarkdownFence(got), 0, nil
+}
+
+// sleepBackoff waits before retry attempt n (n >= 1): exponential from
+// backoffBase, capped at backoffCap, with full jitter so concurrent callers
+// (GetItems fans out with up to HN_MAX_CONCURRENT goroutines) don't all
+// retry in lockstep.
+func sleepBackoff(ctx context.Context, n int) error {
+	ceil := backoffBase << (n - 1)
+	if ceil > backoffCap || ceil <= 0 {
+		ceil = backoffCap
+	}
+	d := time.Duration(rand.Int63n(int64(ceil)))
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // stripMarkdownFence removes a wrapping ```markdown fence that some models add
