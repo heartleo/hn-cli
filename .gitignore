@@ -45,3 +45,9 @@ CLAUDE.md
 *.swp
 .playwright-mcp/
 *.png
+
+# hn-digest output — deployed to GitHub Pages as a build artifact by
+# .github/workflows/digest.yml, never committed.
+/docs/index.html
+/docs/en/index.html
+/docs/state.json

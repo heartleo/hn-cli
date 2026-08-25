@@ -2,8 +2,9 @@
 //
 // It fetches the Hacker News front page, and — unless the same stories were
 // already rendered — asks an LLM to summarise it, writing one HTML page per
-// language. The output is committed to the repo, which is what GitHub Pages
-// serves and what keeps the daily schedule alive.
+// language into -out (default docs/). The workflow that runs this deploys
+// that directory straight to GitHub Pages as a build artifact; nothing here
+// touches the repo's git history.
 //
 // Backend defaults to Groq, whose free tier covers that schedule many times
 // over. Point HN_DIGEST_API_URL at any OpenAI-compatible endpoint to use another.

@@ -30,11 +30,14 @@ on:
       # only covers log lines, not that header. Ad-hoc keys go in the
       # HN_DIGEST_API_KEY secret instead.
 
-# contents: write is for committing the generated pages.
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
-# A slow run must not overlap a manual dispatch and race it to the same files.
+# Deployments to the github-pages environment already serialize by
+# themselves; this group only needs to stop two `generate` runs (schedule +
+# a manual dispatch) racing on the same restored docs/state.json.
 concurrency:
   group: digest
   cancel-in-progress: false
@@ -49,8 +52,10 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.triggering_actor == github.repository_owner
     runs-on: ubuntu-latest
     # The program's own context deadline is 10 minutes; this is the outer bound
-    # that also covers checkout, the Go build, and a wedged push.
+    # that also covers checkout and the Go build.
     timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.run.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,14 +64,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # docs/index.html, docs/en/index.html and docs/state.json are generated
+      # output — deployed straight to Pages below, never committed to the
+      # repo. A fresh checkout has none of them, so the change-detection
+      # fingerprint in state.json has to come from somewhere else: the site
+      # GitHub Pages is already serving is that record. Best-effort — on the
+      # very first run after this migration, or if the site is briefly
+      # unreachable, a missing state.json just means this run regenerates
+      # instead of skipping, which is safe.
+      - name: Restore previous state from the live site
+        run: curl -fsSL https://hndigest.heartleo.dev/state.json -o docs/state.json || true
+
       # HN_DIGEST_API_URL / HN_DIGEST_MODEL are repository variables, not
       # secrets: an endpoint and a model name are not confidential, and keeping
       # them readable is what makes a misrouted request diagnosable from the log.
       # HN_DIGEST_API_KEY is the one real secret.
-      #
-      # This used to run on GitHub Models with the built-in GITHUB_TOKEN and no
-      # secret at all, but GitHub retired that service on 2026-07-30 and the
-      # endpoint now returns 410 for everyone.
       - name: Show effective config
         env:
           API_URL: ${{ inputs.api_url || vars.HN_DIGEST_API_URL }}
@@ -83,6 +95,7 @@ jobs:
       # into the script text — an expression that lands inside `run:` is a
       # command-injection site the moment an input stops being trusted.
       - name: Generate digest
+        id: run
         env:
           HN_DIGEST_API_KEY: ${{ secrets.HN_DIGEST_API_KEY }}
           HN_DIGEST_API_URL: ${{ inputs.api_url || vars.HN_DIGEST_API_URL }}
@@ -90,26 +103,38 @@ jobs:
           FORCE: ${{ inputs.force }}
         run: |
           if [ "$FORCE" = "true" ]; then
-            go run ./cmd/hn-digest --force
+            out=$(go run ./cmd/hn-digest --force)
           else
-            go run ./cmd/hn-digest
+            out=$(go run ./cmd/hn-digest)
+          fi
+          echo "$out"
+          # The program's only machine-readable signal for "nothing to do" is
+          # this line in its own stdout — see cmd/hn-digest/main.go. Anything
+          # else (including a build failure, which never reaches this line)
+          # already failed the step via `go run`'s own exit code.
+          if echo "$out" | grep -q "^front page unchanged"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit
-        run: |
-          git config user.name  'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # Stage first, then test the index. `git diff -- docs` only sees
-          # modifications to tracked files, so on the very first run — when the
-          # pages are brand-new and untracked — it reports no change and the
-          # commit is skipped. Staging brings untracked files into the diff.
-          git add docs
-          if git diff --cached --quiet; then
-            echo "no changes to commit"
-            exit 0
-          fi
-          git commit -m "chore: update digest $(date -u +'%Y-%m-%d %H:%M UTC')"
-          # The scheduled tick and a manual run can both be mid-flight; rebase
-          # rather than fail on a push race.
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      # The live site is unchanged; redeploying identical bytes would just
+      # spend a Pages deployment for nothing.
+      - if: steps.run.outputs.changed == 'true'
+        uses: actions/configure-pages@v5
+
+      - if: steps.run.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: generate
+    if: needs.generate.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
