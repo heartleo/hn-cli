@@ -2,10 +2,13 @@ name: digest
 
 on:
   schedule:
-    # Once a day at 00:00 UTC. GitHub runs scheduled workflows late at peak
-    # times, often by tens of minutes — this is "about midnight UTC", not "on
-    # the stroke of midnight".
-    - cron: "0 0 * * *"
+    # Once a day at 02:00 UTC = 10:00 Beijing time. Picked to run well after
+    # UTC midnight so the newest front-page story (what Dateline() keys off,
+    # see render.go) has already rolled onto the new UTC calendar day — right
+    # after 00:00 UTC it usually hadn't, making the dateline look a day stale.
+    # GitHub runs scheduled workflows late at peak times, often by tens of
+    # minutes — this is "about 02:00 UTC", not "on the stroke of it".
+    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       force:
