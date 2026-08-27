@@ -45,23 +45,33 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	statePath := filepath.Join(*outDir, "state.json")
+	prev, prevErr := readState(statePath)
+
+	// GitHub drops scheduled runs under load, so the workflow fires several
+	// times a day and leans on this to make every attempt after the first one
+	// a no-op. It sits ahead of the front-page fetch on purpose: a run with
+	// nothing left to do should cost one file read, not a network round trip.
+	if !*force && prevErr == nil && sameUTCDay(prev.GeneratedAt, time.Now()) {
+		fmt.Printf("skip: already generated today at %s\n",
+			prev.GeneratedAt.UTC().Format(time.RFC3339))
+		return nil
+	}
+
 	stories, err := digest.FetchFrontPage(ctx, nil)
 	if err != nil {
 		return err
 	}
 
 	fingerprint := digest.Fingerprint(stories)
-	statePath := filepath.Join(*outDir, "state.json")
 
-	if !*force {
-		if prev, err := readState(statePath); err == nil && prev.Fingerprint == fingerprint {
-			// The same stories are on the page. Regenerating would spend a model
-			// call to produce a near-identical digest, so stop here — writing
-			// nothing also means no commit, which is the point of the skip.
-			fmt.Printf("front page unchanged since %s, skipping\n",
-				prev.GeneratedAt.UTC().Format(time.RFC3339))
-			return nil
-		}
+	// The same stories are on the page. Regenerating would spend a model call
+	// to produce a near-identical digest, so stop here — writing nothing also
+	// means no deploy, which is the point of the skip.
+	if !*force && prevErr == nil && prev.Fingerprint == fingerprint {
+		fmt.Printf("skip: front page unchanged since %s\n",
+			prev.GeneratedAt.UTC().Format(time.RFC3339))
+		return nil
 	}
 
 	llm := digest.LLMFromEnv()
@@ -105,6 +115,15 @@ func run() error {
 
 	fmt.Println("done")
 	return nil
+}
+
+// sameUTCDay reports whether a and b fall on the same UTC calendar day. UTC,
+// not local time, because that is what the cron schedule and every timestamp
+// written into state.json are expressed in.
+func sameUTCDay(a, b time.Time) bool {
+	ay, am, ad := a.UTC().Date()
+	by, bm, bd := b.UTC().Date()
+	return ay == by && am == bm && ad == bd
 }
 
 func generate(ctx context.Context, llm *digest.LLM, stories []digest.Story, stats digest.Stats, lang digest.Lang, now time.Time) ([]byte, error) {

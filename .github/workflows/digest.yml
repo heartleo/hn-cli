@@ -2,13 +2,24 @@ name: digest
 
 on:
   schedule:
-    # Once a day at 02:00 UTC = 10:00 Beijing time. Picked to run well after
-    # UTC midnight so the newest front-page story (what Dateline() keys off,
-    # see render.go) has already rolled onto the new UTC calendar day — right
-    # after 00:00 UTC it usually hadn't, making the dateline look a day stale.
-    # GitHub runs scheduled workflows late at peak times, often by tens of
-    # minutes — this is "about 02:00 UTC", not "on the stroke of it".
-    - cron: "0 2 * * *"
+    # 02:11 / 04:13 / 06:17 UTC = 10:11 / 12:13 / 14:17 Beijing time.
+    #
+    # All three are attempts at the same single daily digest, not three
+    # digests: hn-digest skips when state.json already carries today's UTC
+    # date, so whichever attempt lands first does the work and the rest exit
+    # in about a second without touching the model. The redundancy is there
+    # because GitHub delays and outright drops scheduled runs under load —
+    # this workflow lost 13 consecutive days on a plain "0 1" cron.
+    #
+    # Two properties of these times matter. They are past 02:00 UTC, so the
+    # newest front-page story (what Dateline() keys off, see render.go) has
+    # already rolled onto the new UTC calendar day — right after 00:00 UTC it
+    # usually hasn't, which makes the dateline look a day stale. And none of
+    # them sit on the hour, the minute every other cron in the world piles
+    # into and the one most likely to be dropped.
+    - cron: "11 2 * * *"
+    - cron: "13 4 * * *"
+    - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -39,8 +50,11 @@ permissions:
   id-token: write
 
 # Deployments to the github-pages environment already serialize by
-# themselves; this group only needs to stop two `generate` runs (schedule +
-# a manual dispatch) racing on the same restored docs/state.json.
+# themselves; this group only needs to stop two `generate` runs (two schedule
+# attempts that both fired, or a schedule plus a manual dispatch) racing on
+# the same restored docs/state.json. Queue rather than cancel: a cancelled
+# attempt is a lost digest, a queued one costs a second to find its work
+# already done.
 concurrency:
   group: digest
   cancel-in-progress: false
@@ -112,10 +126,12 @@ jobs:
           fi
           echo "$out"
           # The program's only machine-readable signal for "nothing to do" is
-          # this line in its own stdout — see cmd/hn-digest/main.go. Anything
-          # else (including a build failure, which never reaches this line)
-          # already failed the step via `go run`'s own exit code.
-          if echo "$out" | grep -q "^front page unchanged"; then
+          # a "skip:" line on its own stdout — today's digest already exists,
+          # or the front page has not moved since the last one. See
+          # cmd/hn-digest/main.go. Anything else (including a build failure,
+          # which never reaches this line) already failed the step via
+          # `go run`'s own exit code.
+          if echo "$out" | grep -q "^skip:"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
